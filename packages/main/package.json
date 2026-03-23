@@ -1,0 +1,32 @@
+{
+  "name": "@pubg-point-rankings/main",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PUBG Point Rankings - Electron Main Process",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "bundle": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "clean": "rm -rf dist bundle"
+  },
+  "dependencies": {
+    "@pubg-point-rankings/shared": "^0.1.0",
+    "better-sqlite3": "^12.4.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.10.0",
+    "electron": "^28.0.0",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "electron": ">=28.0.0"
+  },
+  "keywords": ["pubg", "overwolf", "electron", "main"],
+  "author": "",
+  "license": "MIT"
+}

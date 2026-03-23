@@ -1,0 +1,25 @@
+{
+  "name": "@pubg-point-rankings/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PUBG Point Rankings - Shared Types and IPC Contracts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"No tests yet\"",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3"
+  },
+  "keywords": ["pubg", "overwolf", "shared", "types"],
+  "author": "",
+  "license": "MIT"
+}

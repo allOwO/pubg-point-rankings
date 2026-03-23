@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; connect-src 'self';">
+  <title>PUBG Point Rankings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-content">
+        <div class="loading-logo">
+          <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <title>PUBG Point Rankings loading logo</title>
+            <path d="M24 4L6 14v20l18 10 18-10V14L24 4z" stroke="currentColor" stroke-width="2" fill="none"/>
+            <path d="M24 4v20l-9 5M24 24l9 5" stroke="currentColor" stroke-width="2"/>
+            <circle cx="24" cy="24" r="4" fill="currentColor"/>
+          </svg>
+        </div>
+        <h1 class="loading-title">PUBG Points</h1>
+        <div class="loading-bar">
+          <div class="loading-bar-fill"></div>
+        </div>
+        <p class="loading-text">Initializing...</p>
+      </div>
+    </div>
+
+    <!-- Error Screen -->
+    <div id="error-screen" class="error-screen hidden">
+      <div class="error-content">
+        <div class="error-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <title>Error indicator</title>
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <h2 class="error-title">Connection Error</h2>
+        <p class="error-message" id="error-message">Unable to connect to the backend.</p>
+        <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>
+      </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="main-app" class="main-app hidden">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="logo">
+            <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <title>PUBG Point Rankings sidebar logo</title>
+              <path d="M24 4L6 14v20l18 10 18-10V14L24 4z" stroke="currentColor" stroke-width="2" fill="none"/>
+              <path d="M24 4v20l-9 5M24 24l9 5" stroke="currentColor" stroke-width="2"/>
+              <circle cx="24" cy="24" r="4" fill="currentColor"/>
+            </svg>
+            <span>POINTS</span>
+          </div>
+          <div class="sync-status" id="sync-status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Ready</span>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <a href="#dashboard" class="nav-item active" data-view="dashboard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <title>Dashboard navigation</title>
+              <rect x="3" y="3" width="7" height="7"/>
+              <rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/>
+              <rect x="3" y="14" width="7" height="7"/>
+            </svg>
+            <span>Dashboard</span>
+          </a>
+          <a href="#teammates" class="nav-item" data-view="teammates">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <title>Teammates navigation</title>
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            <span>Teammates</span>
+          </a>
+          <a href="#rules" class="nav-item" data-view="rules">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <title>Rules navigation</title>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <span>Rules</span>
+          </a>
+          <a href="#matches" class="nav-item" data-view="matches">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <title>Match history navigation</title>
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            <span>Match History</span>
+          </a>
+          <a href="#redbags" class="nav-item" data-view="redbags">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <title>Redbag history navigation</title>
+              <circle cx="12" cy="8" r="7"/>
+              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+            </svg>
+            <span>Point History</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="version">v<span id="app-version">1.0.0</span></div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="content">
+        <!-- Dashboard View -->
+        <section id="view-dashboard" class="view active">
+          <header class="view-header">
+            <h1>Dashboard</h1>
+            <p class="view-subtitle">Overview and quick actions</p>
+          </header>
+
+          <div class="dashboard-grid">
+            <!-- Status Card -->
+            <div class="card card-featured">
+              <div class="card-header">
+                <h3>System Status</h3>
+                <span class="badge badge-success" id="system-status-badge">Online</span>
+              </div>
+              <div class="card-body">
+                <div class="status-grid">
+                  <div class="status-item">
+                    <span class="status-label">Database</span>
+                    <span class="status-value" id="db-status">Checking...</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Last Sync</span>
+                    <span class="status-value" id="last-sync">Never</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Overwolf</span>
+                    <span class="status-value" id="overwolf-status">Checking...</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">PUBG</span>
+                    <span class="status-value" id="pubg-status">Checking...</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Active Rule</span>
+                    <span class="status-value" id="active-rule">Loading...</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Total Points</span>
+                    <span class="status-value" id="total-redbags">--</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Quick Actions</h3>
+              </div>
+              <div class="card-body">
+                <div class="action-buttons">
+                  <button type="button" class="btn btn-primary btn-large" id="btn-sync-now">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <title>Sync latest match</title>
+                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+                    </svg>
+                    Sync Now
+                  </button>
+                  <button type="button" class="btn btn-secondary" id="btn-add-teammate">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <title>Add teammate</title>
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                      <circle cx="8.5" cy="7" r="4"/>
+                      <line x1="20" y1="8" x2="20" y2="14"/>
+                      <line x1="23" y1="11" x2="17" y2="11"/>
+                    </svg>
+                    Add Teammate
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Matches -->
+            <div class="card card-wide">
+              <div class="card-header">
+                <h3>Recent Matches</h3>
+                <a href="#matches" class="link">View All</a>
+              </div>
+              <div class="card-body">
+                <div class="empty-state" id="recent-matches-empty">
+                  <div class="empty-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <title>Recent matches empty state</title>
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                  </div>
+                  <p>No matches recorded yet</p>
+                  <span class="empty-hint">Sync to fetch your latest matches</span>
+                </div>
+                <div class="table-container hidden" id="recent-matches-table">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Match</th>
+                        <th>Map</th>
+                        <th>Mode</th>
+                        <th>Date</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="recent-matches-list"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Top Teammates -->
+            <div class="card card-wide">
+              <div class="card-header">
+                <h3>Top Teammates</h3>
+                <a href="#teammates" class="link">View All</a>
+              </div>
+              <div class="card-body">
+                <div class="empty-state" id="top-teammates-empty">
+                  <div class="empty-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <title>Top teammates empty state</title>
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                      <circle cx="9" cy="7" r="4"/>
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                  </div>
+                  <p>No teammates added</p>
+                  <span class="empty-hint">Add teammates to track their points</span>
+                </div>
+                <div class="teammates-grid hidden" id="top-teammates-list"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Teammates View -->
+        <section id="view-teammates" class="view">
+          <header class="view-header">
+            <div class="view-header-content">
+              <div>
+                <h1>Teammates</h1>
+                <p class="view-subtitle">Manage your squad and track points</p>
+              </div>
+              <button type="button" class="btn btn-primary" id="btn-new-teammate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>Create teammate</title>
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add Teammate
+              </button>
+            </div>
+          </header>
+
+          <div class="view-content">
+            <div class="empty-state empty-state-large" id="teammates-empty">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>No teammates empty state</title>
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+              </div>
+              <h3>No Teammates Yet</h3>
+              <p>Add your first teammate to start tracking points</p>
+              <button type="button" class="btn btn-primary" id="btn-empty-add-teammate">Add Teammate</button>
+            </div>
+
+            <div class="teammates-list hidden" id="teammates-list"></div>
+          </div>
+        </section>
+
+        <!-- Rules View -->
+        <section id="view-rules" class="view">
+          <header class="view-header">
+            <div class="view-header-content">
+              <div>
+                <h1>Point Rules</h1>
+                <p class="view-subtitle">Configure how points are calculated</p>
+              </div>
+              <button type="button" class="btn btn-primary" id="btn-new-rule">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>Create rule</title>
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Create Rule
+              </button>
+            </div>
+          </header>
+
+          <div class="view-content">
+            <div class="empty-state empty-state-large" id="rules-empty">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>No rules empty state</title>
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <h3>No Rules Configured</h3>
+              <p>Create your first rule to start calculating points</p>
+              <button type="button" class="btn btn-primary" id="btn-empty-create-rule">Create Rule</button>
+            </div>
+
+            <div class="rules-list hidden" id="rules-list"></div>
+          </div>
+        </section>
+
+        <!-- Match History View -->
+        <section id="view-matches" class="view">
+          <header class="view-header">
+            <h1>Match History</h1>
+            <p class="view-subtitle">All synced matches and their details</p>
+          </header>
+
+          <div class="view-content">
+            <div class="empty-state empty-state-large" id="matches-empty">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>No matches empty state</title>
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                </svg>
+              </div>
+              <h3>No Matches Found</h3>
+              <p>Sync with PUBG to fetch your match history</p>
+              <button type="button" class="btn btn-primary" id="btn-empty-sync-matches">Sync Now</button>
+            </div>
+
+            <div class="matches-container hidden" id="matches-container">
+              <div class="table-wrapper">
+                <table class="data-table data-table-full">
+                  <thead>
+                    <tr>
+                      <th>Match ID</th>
+                      <th>Map</th>
+                      <th>Mode</th>
+                      <th>Played At</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="matches-list"></tbody>
+                </table>
+              </div>
+              <div class="pagination" id="matches-pagination"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Point History View -->
+        <section id="view-redbags" class="view">
+          <header class="view-header">
+            <h1>Point History</h1>
+            <p class="view-subtitle">All calculated point records</p>
+          </header>
+
+          <div class="view-content">
+            <div class="empty-state empty-state-large" id="redbags-empty">
+              <div class="empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <title>No points empty state</title>
+                  <circle cx="12" cy="8" r="7"/>
+                  <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+                </svg>
+              </div>
+              <h3>No Points Yet</h3>
+              <p>Complete matches to generate point records</p>
+            </div>
+
+            <div class="redbags-container hidden" id="redbags-container">
+              <div class="stats-bar" id="redbags-stats"></div>
+              <div class="table-wrapper">
+                <table class="data-table data-table-full">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Match</th>
+                      <th>Rule</th>
+                      <th>Amount</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="redbags-list"></tbody>
+                </table>
+              </div>
+              <div class="pagination" id="redbags-pagination"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <!-- Teammate Modal -->
+      <div id="modal-teammate" class="modal hidden">
+        <div class="modal-header">
+          <h3 id="teammate-modal-title">Add Teammate</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="teammate-form">
+            <input type="hidden" id="teammate-id">
+            <div class="form-group">
+              <label for="teammate-name">PUBG Player Name *</label>
+              <input type="text" id="teammate-name" class="form-input" placeholder="Enter PUBG username" required>
+            </div>
+            <div class="form-group">
+              <label for="teammate-platform">Platform *</label>
+              <select id="teammate-platform" class="form-select" required>
+                <option value="steam">Steam</option>
+                <option value="xbox">Xbox</option>
+                <option value="psn">PlayStation</option>
+                <option value="kakao">Kakao</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="teammate-nickname">Display Nickname</label>
+              <input type="text" id="teammate-nickname" class="form-input" placeholder="Optional custom name">
+            </div>
+            <div class="form-group form-checkbox">
+              <input type="checkbox" id="teammate-enabled" class="form-checkbox-input" checked>
+              <label for="teammate-enabled">Enable point tracking</label>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Rule Modal -->
+      <div id="modal-rule" class="modal hidden">
+        <div class="modal-header">
+          <h3 id="rule-modal-title">Create Rule</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="rule-form">
+            <input type="hidden" id="rule-id">
+            <div class="form-group">
+              <label for="rule-name">Rule Name *</label>
+              <input type="text" id="rule-name" class="form-input" placeholder="e.g., Standard Rules" required>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="rule-damage">Damage Points</label>
+                <input type="number" id="rule-damage" class="form-input" placeholder="0" min="0">
+              </div>
+              <div class="form-group">
+                <label for="rule-kill">Kill Points</label>
+                <input type="number" id="rule-kill" class="form-input" placeholder="0" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="rule-revive">Revive Points</label>
+                <input type="number" id="rule-revive" class="form-input" placeholder="0" min="0">
+              </div>
+              <div class="form-group">
+                <label for="rule-rounding">Rounding Mode</label>
+                <select id="rule-rounding" class="form-select">
+                  <option value="round">Round</option>
+                  <option value="floor">Floor</option>
+                  <option value="ceil">Ceiling</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Sync Match Modal -->
+      <div id="modal-sync" class="modal hidden">
+        <div class="modal-header">
+          <h3>Sync Match</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="sync-form">
+            <div class="form-group">
+              <label for="sync-match-id">Match ID *</label>
+              <input type="text" id="sync-match-id" class="form-input" placeholder="Enter match ID" required>
+            </div>
+            <div class="form-group">
+              <label for="sync-platform">Platform *</label>
+              <select id="sync-platform" class="form-select" required>
+                <option value="steam">Steam</option>
+                <option value="xbox">Xbox</option>
+                <option value="psn">PlayStation</option>
+                <option value="kakao">Kakao</option>
+              </select>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+              <button type="submit" class="btn btn-primary">
+                <span class="btn-text">Sync</span>
+                <span class="btn-spinner hidden"></span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Match Detail Modal -->
+      <div id="modal-match-detail" class="modal modal-large hidden">
+        <div class="modal-header">
+          <h3>Match Details</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="match-detail-content"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

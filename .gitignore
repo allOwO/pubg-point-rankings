@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-electron/
+bundle/
+packages/*/dist/
+packages/*/bundle/
+packages/renderer/src/app.js
+*.tsbuildinfo
+.DS_Store
+.idea/
+*.iml
+*.log
+.env
+.env.local
+docs/
+.dmg
+.exe
