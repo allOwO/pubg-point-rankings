@@ -130,6 +130,7 @@ describe('MatchesRepository', () => {
     override getByStatus() {
       return this.syncingMatches.map((match, index) => ({
         id: index + 1,
+        accountId: 1,
         matchId: match.matchId,
         platform: 'steam' as Platform,
         mapName: null,

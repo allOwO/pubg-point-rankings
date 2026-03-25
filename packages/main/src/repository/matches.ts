@@ -42,6 +42,7 @@ interface MatchPlayerRow {
 function mapRowToMatch(row: MatchRow): Match {
   return {
     id: row.id,
+    accountId: 1,
     matchId: row.match_id,
     platform: row.platform as Platform,
     mapName: row.map_name,
@@ -59,6 +60,7 @@ function mapRowToMatch(row: MatchRow): Match {
 function mapRowToMatchPlayer(row: MatchPlayerRow): MatchPlayer {
   return {
     id: row.id,
+    accountId: 1,
     matchId: row.match_id,
     teammateId: row.teammate_id,
     pubgAccountId: row.pubg_account_id,

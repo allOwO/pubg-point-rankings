@@ -35,6 +35,7 @@ describe('applyRounding', () => {
 describe('calculatePlayerPoints', () => {
   const rule: PointRule = {
     id: 1,
+    accountId: 1,
     name: 'Test Rule',
     damagePointsPerDamage: 2,
     killPoints: 300,
@@ -84,6 +85,7 @@ describe('calculatePlayerPoints', () => {
 describe('calculatePoints', () => {
   const rule: PointRule = {
     id: 1,
+    accountId: 1,
     name: 'Test Rule',
     damagePointsPerDamage: 2,
     killPoints: 300,

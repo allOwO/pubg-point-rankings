@@ -1,3 +1,4 @@
+pub mod accounts;
 pub mod app;
 pub mod matches;
 pub mod points;

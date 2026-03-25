@@ -4,7 +4,11 @@ use tauri::State;
 use crate::{
     app_state::AppState,
     error::{AppError, ErrorPayload},
-    repository::teammates::{CreateTeammateInput, TeammatesRepository, UpdateTeammateInput},
+    repository::{
+        accounts::AccountsRepository,
+        teammates::{CreateTeammateInput, TeammatesRepository, UpdateTeammateInput},
+    },
+    services::sync,
 };
 
 #[derive(Debug, Deserialize)]
@@ -29,6 +33,23 @@ pub struct UpdateTeammateRequest {
     is_points_enabled: Option<bool>,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeammateHistoryResponse {
+    teammate: crate::repository::teammates::TeammateDto,
+    records: Vec<crate::repository::points::PointRecordDto>,
+    total_matches: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualTeammateSyncResponse {
+    success: bool,
+    scanned_matches: usize,
+    synced_teammates: usize,
+    error: Option<String>,
+}
+
 #[tauri::command]
 pub fn teammates_get_all(
     state: State<'_, AppState>,
@@ -36,8 +57,11 @@ pub fn teammates_get_all(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    TeammatesRepository::new(&connection)
+    TeammatesRepository::new(&connection, account.id)
         .get_all()
         .map_err(|error: AppError| error.into())
 }
@@ -50,8 +74,11 @@ pub fn teammates_get_by_id(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    TeammatesRepository::new(&connection)
+    TeammatesRepository::new(&connection, account.id)
         .get_by_id(id)
         .map_err(|error: AppError| error.into())
 }
@@ -64,6 +91,9 @@ pub fn teammates_create(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
     let create_input = CreateTeammateInput {
         platform: input.platform,
@@ -73,7 +103,7 @@ pub fn teammates_create(
         is_points_enabled: input.is_points_enabled.unwrap_or(true),
     };
 
-    TeammatesRepository::new(&connection)
+    TeammatesRepository::new(&connection, account.id)
         .create(create_input)
         .map_err(|error: AppError| error.into())
 }
@@ -86,6 +116,9 @@ pub fn teammates_update(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
     let update_input = UpdateTeammateInput {
         id: input.id,
@@ -93,7 +126,7 @@ pub fn teammates_update(
         is_points_enabled: input.is_points_enabled,
     };
 
-    TeammatesRepository::new(&connection)
+    TeammatesRepository::new(&connection, account.id)
         .update(update_input)
         .map_err(|error: AppError| error.into())
 }
@@ -106,12 +139,15 @@ pub fn teammates_get_history(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    let teammate_repo = TeammatesRepository::new(&connection);
-    let points_repo = crate::repository::points::PointRecordsRepository::new(&connection);
+    let teammate_repo = TeammatesRepository::new(&connection, account.id);
+    let points_repo =
+        crate::repository::points::PointRecordsRepository::new(&connection, account.id);
 
     let teammate = teammate_repo.get_by_id(id).map_err(ErrorPayload::from)?;
-
     let teammate = teammate.ok_or_else(|| ErrorPayload {
         message: "Teammate not found".to_string(),
     })?;
@@ -120,19 +156,28 @@ pub fn teammates_get_history(
         .get_by_teammate(id)
         .map_err(ErrorPayload::from)?;
 
-    let total_matches = records.len() as i64;
-
     Ok(TeammateHistoryResponse {
         teammate,
+        total_matches: records.len() as i64,
         records,
-        total_matches,
     })
 }
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TeammateHistoryResponse {
-    teammate: crate::repository::teammates::TeammateDto,
-    records: Vec<crate::repository::points::PointRecordDto>,
-    total_matches: i64,
+#[tauri::command]
+pub fn teammates_sync_manual(
+    state: State<'_, AppState>,
+) -> Result<ManualTeammateSyncResponse, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+
+    let result = sync::sync_recent_teammates(&connection, 10)
+        .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+
+    Ok(ManualTeammateSyncResponse {
+        success: result.success,
+        scanned_matches: result.scanned_matches,
+        synced_teammates: result.synced_teammates,
+        error: result.error,
+    })
 }

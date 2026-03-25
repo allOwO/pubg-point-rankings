@@ -3,7 +3,7 @@ use tauri::State;
 use crate::{
     app_state::AppState,
     error::{AppError, ErrorPayload},
-    repository::matches::MatchesRepository,
+    repository::{accounts::AccountsRepository, matches::MatchesRepository},
 };
 
 #[tauri::command]
@@ -15,8 +15,11 @@ pub fn matches_get_all(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    MatchesRepository::new(&connection)
+    MatchesRepository::new(&connection, account.id)
         .get_all(limit.unwrap_or(100), offset.unwrap_or(0))
         .map_err(|error: AppError| error.into())
 }
@@ -29,8 +32,11 @@ pub fn matches_get_by_id(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    MatchesRepository::new(&connection)
+    MatchesRepository::new(&connection, account.id)
         .get_by_id(&match_id)
         .map_err(|error: AppError| error.into())
 }
@@ -43,8 +49,11 @@ pub fn matches_get_players(
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    MatchesRepository::new(&connection)
+    MatchesRepository::new(&connection, account.id)
         .get_players(&match_id)
         .map_err(|error: AppError| error.into())
 }

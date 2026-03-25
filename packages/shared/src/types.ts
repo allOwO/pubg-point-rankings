@@ -17,8 +17,20 @@ export interface AppSetting {
   updatedAt: Date;
 }
 
+export interface Account {
+  id: number;
+  accountName: string;
+  selfPlayerName: string;
+  selfPlatform: Platform;
+  pubgApiKey: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface Teammate {
   id: number;
+  accountId: number;
   platform: Platform;
   pubgAccountId: string | null;
   pubgPlayerName: string;
@@ -32,6 +44,7 @@ export interface Teammate {
 
 export interface Match {
   id: number;
+  accountId: number;
   matchId: string;
   platform: Platform;
   mapName: string | null;
@@ -47,6 +60,7 @@ export interface Match {
 
 export interface MatchPlayer {
   id: number;
+  accountId: number;
   matchId: string;
   teammateId: number | null;
   pubgAccountId: string | null;
@@ -65,6 +79,7 @@ export interface MatchPlayer {
 
 export interface PointRule {
   id: number;
+  accountId: number;
   name: string;
   damagePointsPerDamage: number;
   killPoints: number;
@@ -77,6 +92,7 @@ export interface PointRule {
 
 export interface PointRecord {
   id: number;
+  accountId: number;
   matchId: string;
   matchPlayerId: number;
   teammateId: number | null;

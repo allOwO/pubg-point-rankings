@@ -1,21 +1,14 @@
-use serde::Serialize;
 use tauri::State;
 
 use crate::{
     app_state::AppState,
+    dto::sync_status::SyncStatusDto,
     error::{AppError, ErrorPayload},
-    repository::settings::SettingsRepository,
+    repository::{accounts::AccountsRepository, settings::SettingsRepository},
     services::sync,
 };
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncStatusDto {
-    pub is_syncing: bool,
-    pub last_sync_at: Option<String>,
-    pub current_match_id: Option<String>,
-    pub error: Option<String>,
-}
+use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,9 +34,18 @@ pub fn sync_get_status(state: State<'_, AppState>) -> Result<SyncStatusDto, Erro
     })?;
 
     let runtime_status = sync::read_status(&state.sync_runtime_status);
-    let last_sync_at = SettingsRepository::new(&connection)
-        .get_string("last_sync_at", "")
+    let accounts = AccountsRepository::new(&connection);
+    let settings = SettingsRepository::new(&connection);
+    let active_account = accounts
+        .get_active()
         .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+    let last_sync_at = if let Some(account) = active_account {
+        settings
+            .get_account_string(account.id, "last_sync_at", "")
+            .map_err(|error: AppError| -> ErrorPayload { error.into() })?
+    } else {
+        String::new()
+    };
 
     Ok(SyncStatusDto {
         is_syncing: runtime_status.is_syncing,

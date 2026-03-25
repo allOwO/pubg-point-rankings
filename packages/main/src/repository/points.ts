@@ -25,6 +25,7 @@ interface PointRecordRow {
 function mapRowToRecord(row: PointRecordRow): PointRecord {
   return {
     id: row.id,
+    accountId: 1,
     matchId: row.match_id,
     matchPlayerId: row.match_player_id,
     teammateId: row.teammate_id,

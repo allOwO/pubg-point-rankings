@@ -21,6 +21,7 @@ interface PointRuleRow {
 function mapRowToRule(row: PointRuleRow): PointRule {
   return {
     id: row.id,
+    accountId: 1,
     name: row.name,
     damagePointsPerDamage: row.damage_cent_per_point,
     killPoints: row.kill_cent,

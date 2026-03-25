@@ -1,6 +1,7 @@
 pub mod app_state;
 pub mod commands;
 pub mod db;
+pub mod dto;
 pub mod engine;
 pub mod error;
 pub mod parser;
@@ -32,6 +33,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::accounts::accounts_create,
+            commands::accounts::accounts_get_active,
+            commands::accounts::accounts_get_all,
+            commands::accounts::accounts_logout,
+            commands::accounts::accounts_switch,
+            commands::accounts::accounts_update_active,
             commands::app::app_get_status,
             commands::app::app_get_game_process_status,
             commands::matches::matches_get_all,
@@ -55,6 +62,7 @@ pub fn run() {
             commands::teammates::teammates_get_all,
             commands::teammates::teammates_get_by_id,
             commands::teammates::teammates_get_history,
+            commands::teammates::teammates_sync_manual,
             commands::teammates::teammates_update,
         ])
         .run(tauri::generate_context!())

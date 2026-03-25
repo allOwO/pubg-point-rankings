@@ -5,7 +5,6 @@
  */
 
 import { z } from 'zod';
-import type { Platform, MatchStatus, RoundingMode } from './types';
 
 // Enums
 export const PlatformSchema = z.enum(['steam', 'xbox', 'psn', 'kakao']);
@@ -21,8 +20,20 @@ export const AppSettingSchema = z.object({
   updatedAt: z.date(),
 });
 
+export const AccountSchema = z.object({
+  id: z.number(),
+  accountName: z.string(),
+  selfPlayerName: z.string(),
+  selfPlatform: PlatformSchema,
+  pubgApiKey: z.string(),
+  isActive: z.boolean(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
 export const TeammateSchema = z.object({
   id: z.number(),
+  accountId: z.number(),
   platform: PlatformSchema,
   pubgAccountId: z.string().nullable(),
   pubgPlayerName: z.string(),
@@ -36,6 +47,7 @@ export const TeammateSchema = z.object({
 
 export const MatchSchema = z.object({
   id: z.number(),
+  accountId: z.number(),
   matchId: z.string(),
   platform: PlatformSchema,
   mapName: z.string().nullable(),
@@ -51,6 +63,7 @@ export const MatchSchema = z.object({
 
 export const MatchPlayerSchema = z.object({
   id: z.number(),
+  accountId: z.number(),
   matchId: z.string(),
   teammateId: z.number().nullable(),
   pubgAccountId: z.string().nullable(),
@@ -69,6 +82,7 @@ export const MatchPlayerSchema = z.object({
 
 export const PointRuleSchema = z.object({
   id: z.number(),
+  accountId: z.number(),
   name: z.string(),
   damagePointsPerDamage: z.number().int(),
   killPoints: z.number().int(),
@@ -81,6 +95,7 @@ export const PointRuleSchema = z.object({
 
 export const PointRecordSchema = z.object({
   id: z.number(),
+  accountId: z.number(),
   matchId: z.string(),
   matchPlayerId: z.number(),
   teammateId: z.number().nullable(),

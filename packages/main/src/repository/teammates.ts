@@ -22,6 +22,7 @@ interface TeammateRow {
 function mapRowToTeammate(row: TeammateRow): Teammate {
   return {
     id: row.id,
+    accountId: 1,
     platform: row.platform as Platform,
     pubgAccountId: row.pubg_account_id,
     pubgPlayerName: row.pubg_player_name,

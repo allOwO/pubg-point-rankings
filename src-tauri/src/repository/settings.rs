@@ -106,4 +106,58 @@ impl<'a> SettingsRepository<'a> {
         )?;
         Ok(())
     }
+
+    pub fn get_account(
+        &self,
+        account_id: i64,
+        key: &str,
+    ) -> Result<Option<AppSettingDto>, AppError> {
+        let result = self.connection.query_row(
+            "SELECT key, value, updated_at FROM account_settings WHERE account_id = ?1 AND key = ?2",
+            rusqlite::params![account_id, key],
+            |row| {
+                Ok(AppSettingDto {
+                    key: row.get(0)?,
+                    value: row.get(1)?,
+                    updated_at: row.get(2)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(setting) => Ok(Some(setting)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn get_account_string(
+        &self,
+        account_id: i64,
+        key: &str,
+        default_value: &str,
+    ) -> Result<String, AppError> {
+        let result = self.connection.query_row(
+            "SELECT value FROM account_settings WHERE account_id = ?1 AND key = ?2",
+            rusqlite::params![account_id, key],
+            |row| row.get::<_, String>(0),
+        );
+
+        match result {
+            Ok(value) => Ok(value),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(default_value.to_string()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn set_account(&self, account_id: i64, key: &str, value: &str) -> Result<(), AppError> {
+        self.connection.execute(
+            "INSERT INTO account_settings (account_id, key, value, updated_at)
+             VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)
+             ON CONFLICT(account_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            rusqlite::params![account_id, key, value],
+        )?;
+
+        Ok(())
+    }
 }

@@ -7,6 +7,7 @@ use crate::error::AppError;
 #[serde(rename_all = "camelCase")]
 pub struct TeammateDto {
     pub id: i64,
+    pub account_id: i64,
     pub platform: String,
     pub pubg_account_id: Option<String>,
     pub pubg_player_name: String,
@@ -36,59 +37,35 @@ pub struct UpdateTeammateInput {
 
 pub struct TeammatesRepository<'a> {
     connection: &'a Connection,
+    account_id: i64,
 }
 
 impl<'a> TeammatesRepository<'a> {
-    pub fn new(connection: &'a Connection) -> Self {
-        Self { connection }
+    pub fn new(connection: &'a Connection, account_id: i64) -> Self {
+        Self {
+            connection,
+            account_id,
+        }
     }
 
     pub fn get_all(&self) -> Result<Vec<TeammateDto>, AppError> {
         let mut statement = self.connection.prepare(
-            "SELECT id, platform, pubg_account_id, pubg_player_name, display_nickname, 
-             is_points_enabled, total_points, last_seen_at, created_at, updated_at 
-             FROM teammates ORDER BY pubg_player_name",
+            "SELECT id, account_id, platform, pubg_account_id, pubg_player_name, display_nickname,
+              is_points_enabled, total_points, last_seen_at, created_at, updated_at
+             FROM teammates WHERE account_id = ?1 ORDER BY pubg_player_name",
         )?;
 
-        let rows = statement.query_map([], |row| {
-            Ok(TeammateDto {
-                id: row.get(0)?,
-                platform: row.get(1)?,
-                pubg_account_id: row.get(2)?,
-                pubg_player_name: row.get(3)?,
-                display_nickname: row.get(4)?,
-                is_points_enabled: row.get::<_, i64>(5)? == 1,
-                total_points: row.get(6)?,
-                last_seen_at: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-            })
-        })?;
-
-        let teammates = rows.collect::<Result<Vec<_>, _>>()?;
-        Ok(teammates)
+        let rows = statement.query_map([self.account_id], |row| Self::map_row(row))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn get_by_id(&self, id: i64) -> Result<Option<TeammateDto>, AppError> {
         let result = self.connection.query_row(
-            "SELECT id, platform, pubg_account_id, pubg_player_name, display_nickname, 
-             is_points_enabled, total_points, last_seen_at, created_at, updated_at 
-             FROM teammates WHERE id = ?1",
-            [id],
-            |row| {
-                Ok(TeammateDto {
-                    id: row.get(0)?,
-                    platform: row.get(1)?,
-                    pubg_account_id: row.get(2)?,
-                    pubg_player_name: row.get(3)?,
-                    display_nickname: row.get(4)?,
-                    is_points_enabled: row.get::<_, i64>(5)? == 1,
-                    total_points: row.get(6)?,
-                    last_seen_at: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                })
-            },
+            "SELECT id, account_id, platform, pubg_account_id, pubg_player_name, display_nickname,
+              is_points_enabled, total_points, last_seen_at, created_at, updated_at
+             FROM teammates WHERE account_id = ?1 AND id = ?2",
+            params![self.account_id, id],
+            Self::map_row,
         );
 
         match result {
@@ -104,26 +81,13 @@ impl<'a> TeammatesRepository<'a> {
         pubg_account_id: &str,
     ) -> Result<Option<TeammateDto>, AppError> {
         let result = self.connection.query_row(
-            "SELECT id, platform, pubg_account_id, pubg_player_name, display_nickname,
+            "SELECT id, account_id, platform, pubg_account_id, pubg_player_name, display_nickname,
               is_points_enabled, total_points, last_seen_at, created_at, updated_at
              FROM teammates
-             WHERE platform = ?1 AND pubg_account_id = ?2
+             WHERE account_id = ?1 AND platform = ?2 AND pubg_account_id = ?3
              LIMIT 1",
-            params![platform, pubg_account_id],
-            |row| {
-                Ok(TeammateDto {
-                    id: row.get(0)?,
-                    platform: row.get(1)?,
-                    pubg_account_id: row.get(2)?,
-                    pubg_player_name: row.get(3)?,
-                    display_nickname: row.get(4)?,
-                    is_points_enabled: row.get::<_, i64>(5)? == 1,
-                    total_points: row.get(6)?,
-                    last_seen_at: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                })
-            },
+            params![self.account_id, platform, pubg_account_id],
+            Self::map_row,
         );
 
         match result {
@@ -139,26 +103,13 @@ impl<'a> TeammatesRepository<'a> {
         pubg_player_name: &str,
     ) -> Result<Option<TeammateDto>, AppError> {
         let result = self.connection.query_row(
-            "SELECT id, platform, pubg_account_id, pubg_player_name, display_nickname,
+            "SELECT id, account_id, platform, pubg_account_id, pubg_player_name, display_nickname,
               is_points_enabled, total_points, last_seen_at, created_at, updated_at
              FROM teammates
-             WHERE platform = ?1 AND lower(pubg_player_name) = lower(?2)
+             WHERE account_id = ?1 AND platform = ?2 AND lower(pubg_player_name) = lower(?3)
              LIMIT 1",
-            params![platform, pubg_player_name],
-            |row| {
-                Ok(TeammateDto {
-                    id: row.get(0)?,
-                    platform: row.get(1)?,
-                    pubg_account_id: row.get(2)?,
-                    pubg_player_name: row.get(3)?,
-                    display_nickname: row.get(4)?,
-                    is_points_enabled: row.get::<_, i64>(5)? == 1,
-                    total_points: row.get(6)?,
-                    last_seen_at: row.get(7)?,
-                    created_at: row.get(8)?,
-                    updated_at: row.get(9)?,
-                })
-            },
+            params![self.account_id, platform, pubg_player_name],
+            Self::map_row,
         );
 
         match result {
@@ -170,10 +121,11 @@ impl<'a> TeammatesRepository<'a> {
 
     pub fn create(&self, input: CreateTeammateInput) -> Result<TeammateDto, AppError> {
         self.connection.execute(
-            "INSERT INTO teammates 
-             (platform, pubg_account_id, pubg_player_name, display_nickname, is_points_enabled, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+            "INSERT INTO teammates
+             (account_id, platform, pubg_account_id, pubg_player_name, display_nickname, is_points_enabled, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
             params![
+                self.account_id,
                 input.platform,
                 input.pubg_account_id,
                 input.pubg_player_name,
@@ -207,9 +159,13 @@ impl<'a> TeammatesRepository<'a> {
         }
 
         sets.push("updated_at = CURRENT_TIMESTAMP".to_string());
+        params.push(self.account_id.into());
         params.push(input.id.into());
 
-        let sql = format!("UPDATE teammates SET {} WHERE id = ?", sets.join(", "));
+        let sql = format!(
+            "UPDATE teammates SET {} WHERE account_id = ? AND id = ?",
+            sets.join(", ")
+        );
         self.connection.execute(&sql, params_from_iter(params))?;
 
         self.get_by_id(input.id)?
@@ -220,8 +176,8 @@ impl<'a> TeammatesRepository<'a> {
         self.connection.execute(
             "UPDATE teammates
              SET last_seen_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?1",
-            [id],
+             WHERE account_id = ?1 AND id = ?2",
+            params![self.account_id, id],
         )?;
 
         Ok(())
@@ -231,8 +187,8 @@ impl<'a> TeammatesRepository<'a> {
         self.connection.execute(
             "UPDATE teammates
              SET total_points = ?1, updated_at = CURRENT_TIMESTAMP
-             WHERE id = ?2",
-            params![total_points, id],
+             WHERE account_id = ?2 AND id = ?3",
+            params![total_points, self.account_id, id],
         )?;
 
         Ok(())
@@ -256,8 +212,8 @@ impl<'a> TeammatesRepository<'a> {
                     self.connection.execute(
                         "UPDATE teammates
                          SET pubg_account_id = ?1, updated_at = CURRENT_TIMESTAMP
-                         WHERE id = ?2",
-                        params![account_id, teammate.id],
+                         WHERE account_id = ?2 AND id = ?3",
+                        params![account_id, self.account_id, teammate.id],
                     )?;
                     return self
                         .get_by_id(teammate.id)?
@@ -274,6 +230,22 @@ impl<'a> TeammatesRepository<'a> {
             pubg_player_name: pubg_player_name.to_string(),
             display_nickname: None,
             is_points_enabled: true,
+        })
+    }
+
+    fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TeammateDto> {
+        Ok(TeammateDto {
+            id: row.get(0)?,
+            account_id: row.get(1)?,
+            platform: row.get(2)?,
+            pubg_account_id: row.get(3)?,
+            pubg_player_name: row.get(4)?,
+            display_nickname: row.get(5)?,
+            is_points_enabled: row.get::<_, i64>(6)? == 1,
+            total_points: row.get(7)?,
+            last_seen_at: row.get(8)?,
+            created_at: row.get(9)?,
+            updated_at: row.get(10)?,
         })
     }
 }

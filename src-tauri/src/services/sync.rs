@@ -14,6 +14,7 @@ use crate::{
     parser::telemetry::{aggregate_player_stats, parse_telemetry},
     pubg::client::PubgClient,
     repository::{
+        accounts::AccountsRepository,
         matches::{
             CreateMatchInput, CreateMatchPlayerInput, MatchDto, MatchPlayerDto, MatchesRepository,
         },
@@ -54,6 +55,26 @@ impl SyncResult {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManualTeammateSyncResult {
+    pub success: bool,
+    pub scanned_matches: usize,
+    pub synced_teammates: usize,
+    pub error: Option<String>,
+}
+
+impl ManualTeammateSyncResult {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            scanned_matches: 0,
+            synced_teammates: 0,
+            error: Some(message.into()),
+        }
+    }
+}
+
 pub fn read_status(sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>) -> SyncRuntimeStatus {
     sync_runtime
         .lock()
@@ -65,22 +86,22 @@ pub fn sync_recent_match(
     connection: &Connection,
     sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>,
 ) -> Result<SyncResult, AppError> {
-    let settings = SettingsRepository::new(connection);
-    let api_key = settings.get_string("pubg_api_key", "")?;
+    let active_account = AccountsRepository::new(connection).require_active()?;
+    let api_key = active_account.pubg_api_key.clone();
     if api_key.trim().is_empty() {
         let result = SyncResult::failed("Please configure PUBG API key before starting sync.");
         set_runtime_error(sync_runtime, result.error.clone());
         return Ok(result);
     }
 
-    let self_player_name = settings.get_string("self_player_name", "")?;
+    let self_player_name = active_account.self_player_name.clone();
     if self_player_name.trim().is_empty() {
         let result = SyncResult::failed("Please configure your PUBG player name before syncing.");
         set_runtime_error(sync_runtime, result.error.clone());
         return Ok(result);
     }
 
-    let platform = normalize_platform(settings.get_string("self_platform", "steam")?);
+    let platform = normalize_platform(active_account.self_platform.clone());
     let pubg_client = PubgClient::new(api_key);
 
     let Some(player) = pubg_client.get_player_by_name(&self_player_name, &platform)? else {
@@ -152,24 +173,24 @@ fn sync_match_inner(
     match_id: &str,
     platform: Option<&str>,
 ) -> Result<SyncResult, AppError> {
-    let settings = SettingsRepository::new(connection);
-    let api_key = settings.get_string("pubg_api_key", "")?;
+    let active_account = AccountsRepository::new(connection).require_active()?;
+    let api_key = active_account.pubg_api_key.clone();
     if api_key.trim().is_empty() {
         return Ok(SyncResult::failed(
             "Please configure PUBG API key before starting sync.",
         ));
     }
 
-    let self_player_name = settings.get_string("self_player_name", "")?;
+    let self_player_name = active_account.self_player_name.clone();
     let target_platform = normalize_platform(
         platform
             .map(ToOwned::to_owned)
-            .unwrap_or(settings.get_string("self_platform", "steam")?),
+            .unwrap_or(active_account.self_platform.clone()),
     );
 
     let pubg_client = PubgClient::new(api_key);
-    let matches_repo = MatchesRepository::new(connection);
-    let points_repo = PointRecordsRepository::new(connection);
+    let matches_repo = MatchesRepository::new(connection, active_account.id);
+    let points_repo = PointRecordsRepository::new(connection, active_account.id);
 
     let mut match_data = matches_repo.get_by_id(match_id)?;
     if match_data.is_none() {
@@ -217,7 +238,7 @@ fn sync_match_inner(
     let telemetry_events = parse_telemetry(&telemetry_json)?;
     let player_stats = aggregate_player_stats(&telemetry_events);
 
-    let active_rule = PointRulesRepository::new(connection)
+    let active_rule = PointRulesRepository::new(connection, active_account.id)
         .get_active()?
         .ok_or_else(|| AppError::Message("No active point rule configured.".to_string()))?;
 
@@ -230,7 +251,7 @@ fn sync_match_inner(
         rounding_mode: active_rule.rounding_mode,
     };
 
-    let teammates_repo = TeammatesRepository::new(connection);
+    let teammates_repo = TeammatesRepository::new(connection, active_account.id);
     let mut teammates_by_account_id: HashMap<String, TeammateDto> = HashMap::new();
     let mut teammates_by_name: HashMap<String, TeammateDto> = HashMap::new();
     let mut enabled_player_ids: HashSet<String> = HashSet::new();
@@ -271,9 +292,9 @@ fn sync_match_inner(
         .map(|entry| entry.pubg_account_id.clone());
 
     let tx = connection.unchecked_transaction()?;
-    let tx_matches = MatchesRepository::new(&tx);
-    let tx_points = PointRecordsRepository::new(&tx);
-    let tx_teammates = TeammatesRepository::new(&tx);
+    let tx_matches = MatchesRepository::new(&tx, active_account.id);
+    let tx_points = PointRecordsRepository::new(&tx, active_account.id);
+    let tx_teammates = TeammatesRepository::new(&tx, active_account.id);
     let tx_settings = SettingsRepository::new(&tx);
 
     tx_points.delete_for_match(match_id)?;
@@ -329,10 +350,10 @@ fn sync_match_inner(
     }
 
     tx_matches.update_status(match_id, "ready")?;
-    tx_settings.set("last_sync_at", &chrono_like_iso_utc())?;
+    tx_settings.set_account(active_account.id, "last_sync_at", &chrono_like_iso_utc())?;
     tx.commit()?;
 
-    let final_match = MatchesRepository::new(connection).get_by_id(match_id)?;
+    let final_match = MatchesRepository::new(connection, active_account.id).get_by_id(match_id)?;
 
     Ok(SyncResult {
         success: true,
@@ -379,7 +400,81 @@ fn set_runtime_error(sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>, error: Option
 }
 
 fn mark_match_failed(connection: &Connection, match_id: &str) {
-    let _ = MatchesRepository::new(connection).update_status(match_id, "failed");
+    if let Ok(active_account) = AccountsRepository::new(connection).require_active() {
+        let _ =
+            MatchesRepository::new(connection, active_account.id).update_status(match_id, "failed");
+    }
+}
+
+pub fn sync_recent_teammates(
+    connection: &Connection,
+    recent_match_limit: usize,
+) -> Result<ManualTeammateSyncResult, AppError> {
+    let active_account = AccountsRepository::new(connection).require_active()?;
+    let api_key = active_account.pubg_api_key.clone();
+    if api_key.trim().is_empty() {
+        return Ok(ManualTeammateSyncResult::failed(
+            "Please configure PUBG API key before syncing friends.",
+        ));
+    }
+
+    let self_player_name = active_account.self_player_name.trim().to_string();
+    if self_player_name.is_empty() {
+        return Ok(ManualTeammateSyncResult::failed(
+            "Please configure your PUBG player name before syncing friends.",
+        ));
+    }
+
+    let platform = normalize_platform(active_account.self_platform.clone());
+    let pubg_client = PubgClient::new(api_key);
+    let Some(player) = pubg_client.get_player_by_name(&self_player_name, &platform)? else {
+        return Ok(ManualTeammateSyncResult::failed(
+            "Player not found in PUBG API.",
+        ));
+    };
+
+    let recent_matches =
+        pubg_client.get_recent_matches(&player.id, &platform, recent_match_limit)?;
+    let teammates_repo = TeammatesRepository::new(connection, active_account.id);
+    let mut synced_teammate_ids = HashSet::new();
+
+    for match_id in &recent_matches {
+        let Some(pubg_match) = pubg_client.get_match(match_id, &platform)? else {
+            continue;
+        };
+
+        let Some(telemetry_url) = pubg_client.get_telemetry_url(&pubg_match) else {
+            continue;
+        };
+
+        let telemetry_json = pubg_client.get_telemetry(&telemetry_url)?;
+        let telemetry_events = parse_telemetry(&telemetry_json)?;
+        let player_stats = aggregate_player_stats(&telemetry_events);
+
+        for stats in player_stats {
+            if stats
+                .pubg_player_name
+                .eq_ignore_ascii_case(&self_player_name)
+            {
+                continue;
+            }
+
+            let teammate = teammates_repo.find_or_create(
+                &stats.pubg_player_name,
+                &platform,
+                Some(stats.pubg_account_id.as_str()),
+            )?;
+            teammates_repo.update_last_seen(teammate.id)?;
+            synced_teammate_ids.insert(teammate.id);
+        }
+    }
+
+    Ok(ManualTeammateSyncResult {
+        success: true,
+        scanned_matches: recent_matches.len(),
+        synced_teammates: synced_teammate_ids.len(),
+        error: None,
+    })
 }
 
 fn normalize_platform(value: String) -> String {
