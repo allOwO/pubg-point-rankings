@@ -4,12 +4,6 @@
 Guidance for coding agents working in this repository.
 This repo is **Tauri-first**: Rust backend in `src-tauri/`, vanilla TS renderer in `packages/renderer/`, shared contracts in `packages/shared/`, and legacy TS reference code in `packages/main/`.
 
-## Rule sources checked
-- `.cursor/rules/`: not present
-- `.cursorrules`: not present
-- `.github/copilot-instructions.md`: not present
-- No Cursor or Copilot repo rules were found when this file was updated.
-
 ## Architecture snapshot
 ```text
 pubg-point-rankings/
@@ -26,26 +20,6 @@ pubg-point-rankings/
 - `packages/renderer/` is the live UI.
 - `packages/shared/` is the shared contract layer.
 - `packages/main/` is migration/reference code; do not treat it as the runtime path unless explicitly porting behavior.
-
-## Important locations
-### Tauri backend
-- `src-tauri/src/lib.rs` — bootstrap, state registration, command registration
-- `src-tauri/src/app_state.rs` — global app state
-- `src-tauri/src/commands/` — Tauri command handlers
-- `src-tauri/src/services/` — sync/polling orchestration
-- `src-tauri/src/runtime/` — scheduler + game process state machine
-- `src-tauri/src/platform/` — process detection
-- `src-tauri/src/repository/` — SQLite data access
-- `src-tauri/src/db/` — DB path, schema, migrations
-- `src-tauri/src/pubg/`, `parser/`, `engine/` — API client, telemetry parsing, points logic
-
-### Frontend and shared
-- `packages/renderer/src/app.ts` — main UI/state hotspot
-- `packages/renderer/src/tauri-api.ts` — typed invoke adapter + hydration
-- `packages/renderer/src/index.html` — DOM contract relied on by `app.ts`
-- `packages/shared/src/types.ts` — authoritative domain model
-- `packages/shared/src/schemas.ts` — runtime validation schemas
-- `packages/shared/src/ipc.ts` — legacy IPC contract reference during migration
 
 ## Build / lint / test commands
 ### Root
@@ -89,7 +63,6 @@ cargo test --manifest-path src-tauri/Cargo.toml parses_and_aggregates_basic_stat
 Root tests run compiled JS from `packages/main/dist`, so build first:
 ```bash
 npm run build --workspace @pubg-point-rankings/main
-node --test "packages/main/dist/path/to/file.test.js"
 node --test "packages/main/dist/engine/calculator.test.js"
 node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 ```
