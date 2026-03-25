@@ -1,4 +1,12 @@
-import { getAPI, getRuntimeHost } from './tauri-api';
+import { getAPI, getRuntimeHost, type Account } from './tauri-api';
+import {
+  APP_LANGUAGE_SETTING_KEY,
+  DEFAULT_LOCALE,
+  normalizeLocale,
+  translate,
+  type Locale,
+  type TranslationKey,
+} from './i18n';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -136,6 +144,11 @@ interface PollingSettings {
   recentMatchRetryLimit: number;
 }
 
+interface LanguageOption {
+  value: Locale;
+  labelKey: TranslationKey;
+}
+
 const POLLING_SETTING_KEYS = {
   autoRecentMatchEnabled: 'auto_recent_match_enabled',
   runningProcessCheckIntervalSeconds: 'running_process_check_interval_seconds',
@@ -157,6 +170,11 @@ const DEFAULT_POLLING_SETTINGS: PollingSettings = {
   recentMatchRetryDelaySeconds: 15,
   recentMatchRetryLimit: 2,
 };
+
+const LANGUAGE_OPTIONS: LanguageOption[] = [
+  { value: 'en-US', labelKey: 'settings.languageEnglish' },
+  { value: 'zh-CN', labelKey: 'settings.languageChinese' },
+];
 
 interface CreateTeammateInput {
   platform: 'steam' | 'xbox' | 'psn' | 'kakao';
@@ -213,7 +231,7 @@ function updateTeammateModalMode(mode: 'create' | 'nickname', teammate?: Teammat
   const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement | null;
 
   if (mode === 'create') {
-    if (titleEl) titleEl.textContent = '添加好友';
+    if (titleEl) titleEl.textContent = t('modal.friend.add');
     if (nameInput) {
       nameInput.disabled = false;
       nameInput.value = '';
@@ -231,7 +249,7 @@ function updateTeammateModalMode(mode: 'create' | 'nickname', teammate?: Teammat
   if (!teammate) return;
 
   if (titleEl) {
-    titleEl.textContent = teammate.displayNickname ? '修改昵称' : '添加昵称';
+    titleEl.textContent = teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname');
   }
   if (nameInput) {
     nameInput.disabled = true;
@@ -259,32 +277,204 @@ function openCreateTeammateModal() {
 async function handleManualTeammateSync() {
   const syncButton = document.getElementById('btn-new-teammate') as HTMLButtonElement | null;
   const dashboardSyncButton = document.getElementById('btn-add-teammate') as HTMLButtonElement | null;
+  const settingsSyncButton = document.getElementById('btn-sync-friends-manual') as HTMLButtonElement | null;
 
   if (state.syncStatus?.isSyncing) return;
+  
+  // Check for valid API key before proceeding
+  if (!(await hasValidApiKey())) return;
 
   try {
     if (syncButton) syncButton.disabled = true;
     if (dashboardSyncButton) dashboardSyncButton.disabled = true;
+    if (settingsSyncButton) settingsSyncButton.disabled = true;
 
     const api = getAPI();
-    const result = await api.sync.start();
+    const result = await api.teammates.syncManual();
 
     if (!result.success) {
-      showToast(result.error || '手动同步好友失败', 'error');
+      showToast(result.error || t('sync.friendsFailed'), 'error');
       return;
     }
 
-    showToast('好友列表同步完成');
-    await Promise.all([loadDashboard(), loadTeammates(), loadMatches(), loadPointRecords()]);
+    showToast(t('sync.friendsCompleted', {
+      count: result.syncedTeammates,
+      matches: result.scannedMatches,
+    }));
+    await Promise.all([loadDashboard(), loadTeammates()]);
   } catch (error) {
     console.error('Failed to sync teammates manually:', error);
-    showToast('手动同步好友失败', 'error');
+    showToast(t('sync.friendsFailed'), 'error');
   } finally {
     await loadAppStatus();
     if (syncButton) syncButton.disabled = false;
     if (dashboardSyncButton) dashboardSyncButton.disabled = false;
+    if (settingsSyncButton) settingsSyncButton.disabled = false;
     setSyncNowButtonState();
   }
+}
+
+async function loadSettings() {
+  try {
+    const api = getAPI();
+    const activeAccount = await api.accounts.getActive();
+    
+    const nameInput = document.getElementById('account-name') as HTMLInputElement | null;
+    const playerNameInput = document.getElementById('account-player-name') as HTMLInputElement | null;
+    const platformSelect = document.getElementById('account-platform') as HTMLSelectElement | null;
+    const apiKeyInput = document.getElementById('account-api-key') as HTMLInputElement | null;
+    const languageSelect = document.getElementById('app-language') as HTMLSelectElement | null;
+
+    if (languageSelect) {
+      languageSelect.value = state.locale;
+    }
+    
+    if (activeAccount) {
+      if (nameInput) nameInput.value = activeAccount.accountName || '';
+      if (playerNameInput) playerNameInput.value = activeAccount.selfPlayerName || '';
+      if (platformSelect) platformSelect.value = activeAccount.selfPlatform;
+      if (apiKeyInput) apiKeyInput.value = activeAccount.pubgApiKey || '';
+    } else {
+      if (nameInput) nameInput.value = '';
+      if (playerNameInput) playerNameInput.value = '';
+      if (platformSelect) platformSelect.value = 'steam';
+      if (apiKeyInput) apiKeyInput.value = '';
+    }
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+    showToast(t('toast.accountLoadFailed'), 'error');
+  }
+}
+
+async function handleLanguageSubmit(e: Event) {
+  e.preventDefault();
+
+  const form = e.target as HTMLFormElement;
+  const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+  const languageSelect = document.getElementById('app-language') as HTMLSelectElement | null;
+
+  if (!languageSelect) {
+    return;
+  }
+
+  try {
+    if (submitButton) submitButton.disabled = true;
+
+    await setLanguage(normalizeLocale(languageSelect.value));
+    showToast(t('toast.languageSaved'));
+  } catch (error) {
+    console.error('Failed to save language preference:', error);
+    showToast(t('toast.languageSaveFailed'), 'error');
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+async function handleAccountSettingsSubmit(e: Event) {
+  e.preventDefault();
+  
+  const nameInput = document.getElementById('account-name') as HTMLInputElement | null;
+  const playerNameInput = document.getElementById('account-player-name') as HTMLInputElement | null;
+  const platformSelect = document.getElementById('account-platform') as HTMLSelectElement | null;
+  const submitButton = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement | null;
+  
+  if (!playerNameInput?.value || !platformSelect?.value) {
+    showToast(t('toast.accountRequiredFields'), 'error');
+    return;
+  }
+  
+  try {
+    if (submitButton) submitButton.disabled = true;
+    
+    const api = getAPI();
+    const platform = platformSelect.value as Account['selfPlatform'];
+    const activeAccount = await api.accounts.getActive();
+
+    if (activeAccount) {
+      await api.accounts.updateActive({
+        accountName: nameInput?.value || activeAccount.accountName,
+        selfPlayerName: playerNameInput.value,
+        selfPlatform: platform,
+        pubgApiKey: activeAccount.pubgApiKey,
+      });
+    } else {
+      // Create new account with empty API key (user will add it via separate API key form)
+      await api.accounts.create({
+        accountName: nameInput?.value || playerNameInput.value,
+        selfPlayerName: playerNameInput.value,
+        selfPlatform: platform,
+        pubgApiKey: '',
+        setActive: true,
+      });
+    }
+    
+    await Promise.all([loadSettings(), loadAppStatus(), loadDashboard()]);
+    showToast(t('toast.accountSaved'));
+  } catch (error) {
+    console.error('Failed to save account settings:', error);
+    showToast(t('toast.accountSaveFailed'), 'error');
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+async function handleApiKeySettingsSubmit(e: Event) {
+  e.preventDefault();
+  
+  const apiKeyInput = document.getElementById('account-api-key') as HTMLInputElement | null;
+  const submitButton = (e.target as HTMLFormElement).querySelector('button[type="submit"]') as HTMLButtonElement | null;
+  
+  if (!apiKeyInput?.value) {
+    showToast(t('toast.accountRequiredFields'), 'error');
+    return;
+  }
+  
+  try {
+    if (submitButton) submitButton.disabled = true;
+    
+    const api = getAPI();
+    const activeAccount = await api.accounts.getActive();
+
+    if (activeAccount) {
+      await api.accounts.updateActive({
+        ...activeAccount,
+        pubgApiKey: apiKeyInput.value,
+      });
+    } else {
+      showToast(t('toast.accountRequiredFields'), 'error');
+      return;
+    }
+    
+    await Promise.all([loadSettings(), loadAppStatus(), loadDashboard()]);
+    showToast(t('toast.accountSaved'));
+  } catch (error) {
+    console.error('Failed to save API key:', error);
+    showToast(t('toast.accountSaveFailed'), 'error');
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+async function handleLogout() {
+  openConfirmModal(
+    t('confirm.logout.title'),
+    t('confirm.logout.message'),
+    t('confirm.logout.confirm'),
+    async () => {
+      try {
+        const api = getAPI();
+        await api.accounts.logout();
+        showToast(t('toast.logoutSuccess'));
+        // Refresh the page to reset state
+        location.reload();
+      } catch (error) {
+        console.error('Failed to logout:', error);
+        showToast(t('toast.logoutFailed'), 'error');
+      }
+    },
+    'btn-danger',
+    'danger'
+  );
 }
 
 // State management
@@ -298,20 +488,130 @@ export class AppState {
   appStatus: AppStatus | null = null;
   gameProcessStatus: GameProcessStatus | null = null;
   pollingSettings: PollingSettings = { ...DEFAULT_POLLING_SETTINGS };
+  locale: Locale = DEFAULT_LOCALE;
   isLoading = false;
 }
 
 export const state = new AppState();
 
 // Utility functions
+function t(key: TranslationKey, params?: Record<string, string | number>): string {
+  return translate(state.locale, key, params);
+}
+
+function getActiveViewId(): string {
+  return document.querySelector('.view.active')?.id.replace('view-', '') || 'dashboard';
+}
+
+function translateMatchStatus(status: Match['status']): string {
+  return t(`status.match.${status}` as TranslationKey);
+}
+
+function applyStaticTranslations() {
+  document.documentElement.lang = state.locale;
+  document.title = t('app.title');
+
+  document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((element) => {
+    const key = element.dataset.i18n as TranslationKey | undefined;
+    if (key) {
+      element.textContent = t(key);
+    }
+  });
+
+  document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-i18n-placeholder]').forEach((element) => {
+    const key = element.dataset.i18nPlaceholder as TranslationKey | undefined;
+    if (key) {
+      element.placeholder = t(key);
+    }
+  });
+
+  const languageSelect = document.getElementById('app-language') as HTMLSelectElement | null;
+  if (languageSelect) {
+    languageSelect.innerHTML = LANGUAGE_OPTIONS.map((option) => {
+      const selected = option.value === state.locale ? ' selected' : '';
+      return `<option value="${option.value}"${selected}>${t(option.labelKey)}</option>`;
+    }).join('');
+  }
+
+  const syncLabel = document.getElementById('btn-sync-now-label');
+  if (syncLabel && !state.syncStatus?.isSyncing) {
+    syncLabel.textContent = t('dashboard.syncNow');
+  }
+
+  const confirmCancel = document.getElementById('confirm-modal-cancel');
+  if (confirmCancel) {
+    confirmCancel.textContent = t('modal.cancel');
+  }
+}
+
+async function loadLanguagePreference() {
+  try {
+    const api = getAPI();
+    const languageSetting = await api.settings.get(APP_LANGUAGE_SETTING_KEY);
+    state.locale = normalizeLocale(languageSetting?.value);
+  } catch (error) {
+    console.error('Failed to load language preference:', error);
+    state.locale = DEFAULT_LOCALE;
+  }
+
+  applyStaticTranslations();
+}
+
+async function refreshLocalizedContent() {
+  updateSyncIndicator();
+  updateDashboardStatus();
+  updateActiveRule();
+
+  renderRecentMatches();
+  renderTopTeammates();
+  renderTeammatesList();
+  renderRulesList();
+  renderMatchesList();
+  renderPointRecordsList();
+
+  if (getActiveViewId() === 'settings') {
+    await loadSettings();
+  }
+}
+
+async function setLanguage(locale: Locale) {
+  const normalizedLocale = normalizeLocale(locale);
+  const api = getAPI();
+  await api.settings.set(APP_LANGUAGE_SETTING_KEY, normalizedLocale);
+  state.locale = normalizedLocale;
+  applyStaticTranslations();
+  await refreshLocalizedContent();
+}
+
+async function hasValidApiKey(): Promise<boolean> {
+  const api = getAPI();
+  const activeAccount = await api.accounts.getActive();
+  
+  if (!activeAccount || !activeAccount.pubgApiKey?.trim()) {
+    openConfirmModal(
+      t('confirm.apiKeyMissing.title'),
+      t('confirm.apiKeyMissing.message'),
+      t('confirm.apiKeyMissing.confirm'),
+      () => {
+        navigateTo('settings');
+      },
+      'btn-primary',
+      'warning'
+    );
+    return false;
+  }
+  
+  return true;
+}
+
 function formatPoints(points: number): string {
   return `${Math.round(points).toLocaleString()} pts`;
 }
 
 function formatDate(date: Date | string | null): string {
-  if (!date) return 'Never';
+  if (!date) return t('common.never');
   const d = new Date(date);
-  return d.toLocaleDateString('en-US', {
+  return d.toLocaleDateString(state.locale, {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -319,9 +619,9 @@ function formatDate(date: Date | string | null): string {
 }
 
 function formatDateTime(date: Date | string | null): string {
-  if (!date) return 'Never';
+  if (!date) return t('common.never');
   const d = new Date(date);
-  return d.toLocaleString('en-US', {
+  return d.toLocaleString(state.locale, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -355,7 +655,7 @@ function setSyncNowButtonState() {
   const isSyncing = state.syncStatus?.isSyncing ?? false;
   syncNowButton.disabled = isSyncing;
   if (label) {
-    label.textContent = isSyncing ? 'Syncing Latest Match...' : 'Sync Now';
+    label.textContent = isSyncing ? t('dashboard.syncingLatestMatch') : t('dashboard.syncNow');
   }
 }
 
@@ -371,15 +671,20 @@ export function showToast(message: string, type: 'success' | 'error' | 'warning'
     <button class="toast-close">&times;</button>
   `;
 
-  toast.querySelector('.toast-close')?.addEventListener('click', () => {
-    toast.remove();
-  });
+  // Helper function to close toast with animation
+  const closeToast = () => {
+    toast.classList.add('closing');
+    // Remove after animation completes (matches 0.3s duration in CSS)
+    setTimeout(() => {
+      toast.remove();
+    }, 300);
+  };
+
+  toast.querySelector('.toast-close')?.addEventListener('click', closeToast);
 
   container.appendChild(toast);
 
-  setTimeout(() => {
-    toast.remove();
-  }, 5000);
+  setTimeout(closeToast, 5000);
 }
 
 // Loading screen
@@ -414,6 +719,9 @@ function openModal(modalId: string) {
   }
 }
 
+// Confirmation modal callback
+let confirmCallback: (() => void) | null = null;
+
 function closeAllModals() {
   const overlay = document.getElementById('modal-overlay');
   const modals = document.querySelectorAll('.modal');
@@ -425,10 +733,92 @@ function closeAllModals() {
     modal.classList.add('hidden');
   });
   if (teammateIdInput) teammateIdInput.value = '';
+  confirmCallback = null;
+}
+
+/**
+ * Open a confirmation modal
+ * @param title Modal title
+ * @param message Modal message
+ * @param confirmText Text for confirm button
+ * @param onConfirm Callback to run when confirm is clicked
+ * @param confirmButtonClass Optional class for the confirm button (e.g. 'btn-danger')
+ * @param iconType Optional icon type: 'info' | 'warning' | 'danger' | 'success'
+ */
+function openConfirmModal(
+  title: string,
+  message: string,
+  confirmText: string,
+  onConfirm: () => void,
+  confirmButtonClass: string = 'btn-primary',
+  iconType: 'info' | 'warning' | 'danger' | 'success' = 'info'
+) {
+  const titleEl = document.getElementById('confirm-modal-title');
+  const messageEl = document.getElementById('confirm-modal-message');
+  const confirmBtn = document.getElementById('confirm-modal-confirm') as HTMLButtonElement | null;
+  const iconEl = document.getElementById('confirm-modal-icon');
+  
+  if (titleEl) titleEl.textContent = title;
+  if (messageEl) messageEl.textContent = message;
+  if (confirmBtn) {
+    confirmBtn.textContent = confirmText;
+    // Reset button classes
+    confirmBtn.className = `btn ${confirmButtonClass}`;
+  }
+  
+  // Set up icon
+  if (iconEl) {
+    iconEl.className = `modal-icon modal-icon-${iconType}`;
+    iconEl.classList.remove('hidden');
+    
+    // Update icon SVG based on type
+    const svg = iconEl.querySelector('svg');
+    if (svg) {
+      switch (iconType) {
+        case 'warning':
+          svg.innerHTML = `
+            <title>Warning icon</title>
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          `;
+          break;
+        case 'danger':
+          svg.innerHTML = `
+            <title>Danger icon</title>
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="15" y1="9" x2="9" y2="15"/>
+            <line x1="9" y1="9" x2="15" y2="15"/>
+          `;
+          break;
+        case 'success':
+          svg.innerHTML = `
+            <title>Success icon</title>
+            <circle cx="12" cy="12" r="10"/>
+            <path d="m9 12 2 2 4-4"/>
+          `;
+          break;
+        default:
+          svg.innerHTML = `
+            <title>Information icon</title>
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+          `;
+          break;
+      }
+    }
+  }
+  
+  confirmCallback = onConfirm;
+  openModal('modal-confirm');
 }
 
 // Navigation
 export function navigateTo(viewId: string) {
+  // Save current view to localStorage for persistence
+  localStorage.setItem('lastActiveView', viewId);
+
   // Update nav items
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.remove('active');
@@ -447,23 +837,26 @@ export function navigateTo(viewId: string) {
   }
 
   // Load view data
-  switch (viewId) {
-    case 'dashboard':
-      loadDashboard();
-      break;
-    case 'teammates':
-      loadTeammates();
-      break;
-    case 'rules':
-      loadRules();
-      break;
-    case 'matches':
-      loadMatches();
-      break;
-    case 'points':
-      loadPointRecords();
-      break;
-  }
+   switch (viewId) {
+     case 'dashboard':
+       loadDashboard();
+       break;
+     case 'teammates':
+       loadTeammates();
+       break;
+     case 'rules':
+       loadRules();
+       break;
+     case 'matches':
+       loadMatches();
+       break;
+     case 'points':
+       loadPointRecords();
+       break;
+     case 'settings':
+       loadSettings();
+       break;
+   }
 }
 
 // Data loading functions
@@ -524,7 +917,7 @@ async function loadDashboard() {
     }
   } catch (error) {
     console.error('Failed to load dashboard:', error);
-    showToast('Failed to load dashboard data', 'error');
+    showToast(t('toast.dashboardLoadFailed'), 'error');
   }
 }
 
@@ -607,7 +1000,7 @@ function updateDashboardStatus() {
   const systemBadge = document.getElementById('system-status-badge');
   
   if (dbStatus) {
-    dbStatus.textContent = state.appStatus.isDatabaseReady ? 'Connected' : 'Error';
+    dbStatus.textContent = state.appStatus.isDatabaseReady ? t('dashboard.connected') : t('dashboard.error');
     dbStatus.className = 'status-value ' + (state.appStatus.isDatabaseReady ? 'text-success' : 'text-error');
   }
   
@@ -624,32 +1017,32 @@ function updateDashboardStatus() {
     const processState = state.gameProcessStatus?.state ?? 'not_running';
 
     if (processState === 'running') {
-      gameProcessStatus.textContent = 'Running';
+      gameProcessStatus.textContent = t('dashboard.running');
       gameProcessStatus.className = 'status-value text-success';
     } else if (processState === 'cooldown_polling') {
-      gameProcessStatus.textContent = 'Cooldown Polling';
+      gameProcessStatus.textContent = t('dashboard.cooldownPolling');
       gameProcessStatus.className = 'status-value text-warning';
     } else {
-      gameProcessStatus.textContent = 'Not Running';
+      gameProcessStatus.textContent = t('dashboard.notRunning');
       gameProcessStatus.className = 'status-value text-muted';
     }
   }
 
   if (currentMatchStatus) {
     const currentMatchId = state.syncStatus?.currentMatchId;
-    currentMatchStatus.textContent = currentMatchId ? truncateMatchId(currentMatchId) : 'Idle';
+    currentMatchStatus.textContent = currentMatchId ? truncateMatchId(currentMatchId) : t('dashboard.idle');
     currentMatchStatus.className = 'status-value ' + (currentMatchId ? 'text-success' : 'text-muted');
   }
 
   if (systemBadge) {
     if (state.appStatus.isDatabaseReady && !state.syncStatus?.error) {
-      systemBadge.textContent = 'Ready';
+      systemBadge.textContent = t('status.ready');
       systemBadge.className = 'badge badge-success';
     } else if (state.appStatus.isDatabaseReady) {
-      systemBadge.textContent = 'Attention';
+      systemBadge.textContent = t('dashboard.attention');
       systemBadge.className = 'badge badge-warning';
     } else {
-      systemBadge.textContent = 'Error';
+      systemBadge.textContent = t('dashboard.error');
       systemBadge.className = 'badge badge-error';
     }
   }
@@ -670,14 +1063,14 @@ function updateSyncIndicator() {
   if (state.syncStatus.isSyncing) {
     dot?.classList.add('syncing');
     dot?.classList.remove('error');
-    if (text) text.textContent = 'Syncing...';
+    if (text) text.textContent = t('sync.syncing');
   } else if (state.syncStatus.error) {
     dot?.classList.remove('syncing');
     dot?.classList.add('error');
-    if (text) text.textContent = 'Sync Error';
+    if (text) text.textContent = t('sync.syncError');
   } else {
     dot?.classList.remove('syncing', 'error');
-    if (text) text.textContent = 'Ready';
+    if (text) text.textContent = t('status.ready');
   }
 
   setSyncNowButtonState();
@@ -686,7 +1079,7 @@ function updateSyncIndicator() {
 function updateActiveRule() {
   const activeRuleEl = document.getElementById('active-rule');
   if (activeRuleEl) {
-    activeRuleEl.textContent = state.activeRule?.name || 'None';
+    activeRuleEl.textContent = state.activeRule?.name || t('dashboard.none');
   }
 }
 
@@ -709,10 +1102,10 @@ function renderRecentMatches() {
   listEl.innerHTML = state.matches.map(match => `
     <tr>
       <td>${truncateMatchId(match.matchId)}</td>
-      <td>${match.mapName || 'Unknown'}</td>
-      <td>${match.gameMode || 'Unknown'}</td>
+      <td>${match.mapName || t('common.unknown')}</td>
+      <td>${match.gameMode || t('common.unknown')}</td>
       <td>${formatDate(match.playedAt)}</td>
-      <td><span class="status-badge status-${match.status}">${match.status}</span></td>
+      <td><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></td>
     </tr>
   `).join('');
 }
@@ -742,12 +1135,12 @@ function renderTopTeammates() {
       <div class="card-title">${teammate.displayNickname || teammate.pubgPlayerName}</div>
       <div class="card-subtitle">${teammate.pubgPlayerName}</div>
       <div class="card-stats">
-        <div class="card-stat">
-          <div class="card-stat-value">${formatPoints(teammate.totalPoints)}</div>
-          <div class="card-stat-label">Total</div>
+          <div class="card-stat">
+            <div class="card-stat-value">${formatPoints(teammate.totalPoints)}</div>
+            <div class="card-stat-label">${t('points.totalPoints')}</div>
+          </div>
         </div>
       </div>
-    </div>
   `).join('');
 }
 
@@ -760,7 +1153,7 @@ async function loadTeammates() {
     renderTeammatesList();
   } catch (error) {
     console.error('Failed to load teammates:', error);
-    showToast('Failed to load teammates', 'error');
+    showToast(t('toast.teammatesLoadFailed'), 'error');
   }
 }
 
@@ -782,15 +1175,15 @@ function renderTeammatesList() {
   listEl.innerHTML = state.teammates.map(teammate => `
     <div class="friend-row ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
       <div class="friend-row-main">
-        <div class="friend-row-label">${teammate.pubgAccountId ? '用户 ID' : '用户标识'}</div>
+        <div class="friend-row-label">${teammate.pubgAccountId ? t('friends.playerId') : t('friends.playerIdentifier')}</div>
         <div class="friend-row-value">${getFriendIdentifier(teammate)}</div>
       </div>
       <div class="friend-row-main">
-        <div class="friend-row-label">保存昵称</div>
-        <div class="friend-row-value ${teammate.displayNickname ? '' : 'muted'}">${teammate.displayNickname || '未设置'}</div>
+        <div class="friend-row-label">${t('friends.savedNickname')}</div>
+        <div class="friend-row-value ${teammate.displayNickname ? '' : 'muted'}">${teammate.displayNickname || t('friends.notSet')}</div>
       </div>
       <div class="card-actions friend-row-actions">
-        <button class="btn btn-secondary" onclick="editTeammateNickname(${teammate.id})">${teammate.displayNickname ? '修改昵称' : '添加昵称'}</button>
+        <button class="btn btn-secondary" onclick="editTeammateNickname(${teammate.id})">${teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname')}</button>
       </div>
     </div>
   `).join('');
@@ -809,7 +1202,7 @@ async function loadRules() {
     renderRulesList();
   } catch (error) {
     console.error('Failed to load rules:', error);
-    showToast('Failed to load rules', 'error');
+    showToast(t('toast.rulesLoadFailed'), 'error');
   }
 }
 
@@ -831,25 +1224,25 @@ function renderRulesList() {
   listEl.innerHTML = state.rules.map(rule => `
     <div class="rule-card ${rule.isActive ? 'active' : ''}">
       <div class="card-title">${rule.name}</div>
-      ${rule.isActive ? '<span class="badge badge-success">Active</span>' : ''}
+      ${rule.isActive ? `<span class="badge badge-success">${t('rules.active')}</span>` : ''}
       <div class="card-stats">
         <div class="card-stat">
           <div class="card-stat-value">${rule.damagePointsPerDamage}</div>
-          <div class="card-stat-label">pts/DMG</div>
+          <div class="card-stat-label">${t('rules.pointsPerDamage')}</div>
         </div>
         <div class="card-stat">
           <div class="card-stat-value">${rule.killPoints}</div>
-          <div class="card-stat-label">pts/Kill</div>
+          <div class="card-stat-label">${t('rules.pointsPerKill')}</div>
         </div>
         <div class="card-stat">
           <div class="card-stat-value">${rule.revivePoints}</div>
-          <div class="card-stat-label">pts/Revive</div>
+          <div class="card-stat-label">${t('rules.pointsPerRevive')}</div>
         </div>
       </div>
       <div class="card-actions">
-        ${!rule.isActive ? `<button class="btn btn-secondary" onclick="activateRule(${rule.id})">Activate</button>` : ''}
-        <button class="btn btn-secondary" onclick="editRule(${rule.id})">Edit</button>
-        <button class="btn btn-danger" onclick="deleteRule(${rule.id})">Delete</button>
+        ${!rule.isActive ? `<button class="btn btn-secondary" onclick="activateRule(${rule.id})">${t('rules.activate')}</button>` : ''}
+        <button class="btn btn-secondary" onclick="editRule(${rule.id})">${t('rules.edit')}</button>
+        <button class="btn btn-danger" onclick="deleteRule(${rule.id})">${t('rules.delete')}</button>
       </div>
     </div>
   `).join('');
@@ -864,7 +1257,7 @@ async function loadMatches() {
     renderMatchesList();
   } catch (error) {
     console.error('Failed to load matches:', error);
-    showToast('Failed to load matches', 'error');
+    showToast(t('toast.matchesLoadFailed'), 'error');
   }
 }
 
@@ -887,12 +1280,12 @@ function renderMatchesList() {
   listEl.innerHTML = state.matches.map(match => `
     <tr>
       <td>${truncateMatchId(match.matchId)}</td>
-      <td>${match.mapName || 'Unknown'}</td>
-      <td>${match.gameMode || 'Unknown'}</td>
+      <td>${match.mapName || t('common.unknown')}</td>
+      <td>${match.gameMode || t('common.unknown')}</td>
       <td>${formatDateTime(match.playedAt)}</td>
-      <td><span class="status-badge status-${match.status}">${match.status}</span></td>
+      <td><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></td>
       <td>
-        <button class="btn btn-secondary" onclick="viewMatchDetail('${match.matchId}')">View</button>
+        <button class="btn btn-secondary" onclick="viewMatchDetail('${match.matchId}')">${t('matches.view')}</button>
       </td>
     </tr>
   `).join('');
@@ -907,7 +1300,7 @@ async function loadPointRecords() {
     renderPointRecordsList();
   } catch (error) {
     console.error('Failed to load point records:', error);
-    showToast('Failed to load point history', 'error');
+    showToast(t('toast.pointsLoadFailed'), 'error');
   }
 }
 
@@ -935,11 +1328,11 @@ function renderPointRecordsList() {
     statsEl.innerHTML = `
       <div class="stat-item">
         <div class="stat-value">${state.pointRecords.length}</div>
-        <div class="stat-label">Total Records</div>
+        <div class="stat-label">${t('points.totalRecords')}</div>
       </div>
       <div class="stat-item">
         <div class="stat-value">${formatPoints(totalAmount)}</div>
-        <div class="stat-label">Total Points</div>
+        <div class="stat-label">${t('points.totalPoints')}</div>
       </div>
     `;
   }
@@ -965,7 +1358,6 @@ async function handleTeammateSubmit(e: Event) {
   const platformInput = document.getElementById('teammate-platform') as HTMLSelectElement;
   const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement;
   const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement;
-  const isFirstTeammate = state.teammates.length === 0 && !idInput.value;
   
   try {
     const api = getAPI();
@@ -973,11 +1365,11 @@ async function handleTeammateSubmit(e: Event) {
     if (idInput.value) {
       // Update existing
       await api.teammates.update({
-        id: parseInt(idInput.value),
+        id: parseInt(idInput.value, 10),
         displayNickname: nicknameInput.value || null,
         isPointsEnabled: enabledInput.checked,
       });
-      showToast('昵称保存成功');
+      showToast(t('toast.friendSaved'));
     } else {
       // Create new
       if (!isPlatformValue(platformInput.value)) {
@@ -991,29 +1383,15 @@ async function handleTeammateSubmit(e: Event) {
         displayNickname: nicknameInput.value || null,
         isPointsEnabled: enabledInput.checked,
       });
-
-      if (isFirstTeammate) {
-        const syncResult = await api.sync.start();
-        if (!syncResult.success) {
-          showToast(syncResult.error || '首次添加后自动同步失败', 'warning');
-        } else {
-          showToast('好友已添加，并自动同步好友列表');
-        }
-      } else {
-        showToast('好友添加成功');
-      }
+      showToast(t('toast.friendAdded'));
     }
     
     closeAllModals();
     form.reset();
-    await Promise.all([
-      loadTeammates(),
-      loadDashboard(),
-      ...(isFirstTeammate ? [loadMatches(), loadPointRecords()] : []),
-    ]);
+    await Promise.all([loadTeammates(), loadDashboard()]);
   } catch (error) {
     console.error('Failed to save teammate:', error);
-    showToast('保存好友失败', 'error');
+    showToast(t('toast.friendSaveFailed'), 'error');
   }
 }
 
@@ -1035,24 +1413,24 @@ async function handleRuleSubmit(e: Event) {
     if (idInput.value) {
       // Update existing
       await api.rules.update({
-        id: parseInt(idInput.value),
+        id: parseInt(idInput.value, 10),
         name: nameInput.value,
-        damagePointsPerDamage: parseInt(damageInput.value) || 0,
-        killPoints: parseInt(killInput.value) || 0,
-        revivePoints: parseInt(reviveInput.value) || 0,
+        damagePointsPerDamage: parseInt(damageInput.value, 10) || 0,
+        killPoints: parseInt(killInput.value, 10) || 0,
+        revivePoints: parseInt(reviveInput.value, 10) || 0,
         roundingMode,
       });
-      showToast('Rule updated successfully');
+      showToast(t('toast.ruleUpdated'));
     } else {
       // Create new
       await api.rules.create({
         name: nameInput.value,
-        damagePointsPerDamage: parseInt(damageInput.value) || 0,
-        killPoints: parseInt(killInput.value) || 0,
-        revivePoints: parseInt(reviveInput.value) || 0,
+        damagePointsPerDamage: parseInt(damageInput.value, 10) || 0,
+        killPoints: parseInt(killInput.value, 10) || 0,
+        revivePoints: parseInt(reviveInput.value, 10) || 0,
         roundingMode,
       });
-      showToast('Rule created successfully');
+      showToast(t('toast.ruleCreated'));
     }
     
     closeAllModals();
@@ -1061,7 +1439,7 @@ async function handleRuleSubmit(e: Event) {
     loadDashboard();
   } catch (error) {
     console.error('Failed to save rule:', error);
-    showToast('Failed to save rule', 'error');
+    showToast(t('toast.ruleSaveFailed'), 'error');
   }
 }
 
@@ -1074,6 +1452,9 @@ async function handleSyncSubmit(e: Event) {
   const btnText = submitBtn?.querySelector('.btn-text');
   const btnSpinner = submitBtn?.querySelector('.btn-spinner');
   
+  // Check for valid API key before proceeding
+  if (!(await hasValidApiKey())) return;
+  
   try {
     // Show loading state
     if (submitBtn) submitBtn.disabled = true;
@@ -1084,18 +1465,18 @@ async function handleSyncSubmit(e: Event) {
     const result = await api.sync.startMatch(matchIdInput.value, platformInput.value);
     
     if (result.success) {
-      showToast('Match synced successfully');
+      showToast(t('sync.matchCompleted'));
       closeAllModals();
       (e.target as HTMLFormElement).reset();
       loadMatches();
       loadPointRecords();
       loadDashboard();
     } else {
-      showToast(result.error || 'Failed to sync match', 'error');
+      showToast(result.error || t('sync.matchFailed'), 'error');
     }
   } catch (error) {
     console.error('Failed to sync match:', error);
-    showToast('Failed to sync match', 'error');
+    showToast(t('sync.matchFailed'), 'error');
   } finally {
     // Reset loading state
     if (submitBtn) submitBtn.disabled = false;
@@ -1120,7 +1501,7 @@ async function handlePollingSettingsSubmit(e: Event) {
   const retryLimit = document.getElementById('setting-recent-match-retry-limit') as HTMLInputElement | null;
 
   if (!autoEnabled || !runningProcessCheck || !notRunningProcessCheck || !runningRecentMatch || !cooldownPolling || !cooldownWindow || !retryDelay || !retryLimit) {
-    showToast('Polling settings form is not available.', 'error');
+    showToast(t('toast.pollingUnavailable'), 'error');
     return;
   }
 
@@ -1142,10 +1523,10 @@ async function handlePollingSettingsSubmit(e: Event) {
     await Promise.all(entries.map(([key, value]) => api.settings.set(key, value)));
 
     await loadPollingSettings();
-    showToast('Polling settings saved successfully');
+    showToast(t('toast.pollingSaved'));
   } catch (error) {
     console.error('Failed to save polling settings:', error);
-    showToast('Failed to save polling settings', 'error');
+    showToast(t('toast.pollingFailed'), 'error');
   } finally {
     if (submitBtn) submitBtn.disabled = false;
   }
@@ -1154,6 +1535,9 @@ async function handlePollingSettingsSubmit(e: Event) {
 async function handleImmediateRecentMatchCheck() {
   const syncNowButton = document.getElementById('btn-sync-now') as HTMLButtonElement | null;
   if (state.syncStatus?.isSyncing) return;
+  
+  // Check for valid API key before proceeding
+  if (!(await hasValidApiKey())) return;
 
   try {
     if (syncNowButton) syncNowButton.disabled = true;
@@ -1162,15 +1546,15 @@ async function handleImmediateRecentMatchCheck() {
     const result = await api.sync.start();
 
     if (!result.success) {
-      showToast(result.error || 'Failed to check recent match', 'error');
+      showToast(result.error || t('sync.checkRecentFailed'), 'error');
       return;
     }
 
-    showToast('Recent match check completed');
+    showToast(t('sync.checkRecentCompleted'));
     await Promise.all([loadDashboard(), loadMatches(), loadPointRecords()]);
   } catch (error) {
     console.error('Failed to check recent match:', error);
-    showToast('Failed to check recent match', 'error');
+    showToast(t('sync.checkRecentFailed'), 'error');
   } finally {
     await loadAppStatus();
     setSyncNowButtonState();
@@ -1191,7 +1575,7 @@ window.editTeammateNickname = async (id: number) => {
     openModal('modal-teammate');
   } catch (error) {
     console.error('Failed to load teammate:', error);
-    showToast('加载好友信息失败', 'error');
+    showToast(t('toast.friendDetailsFailed'), 'error');
   }
 };
 
@@ -1214,12 +1598,12 @@ window.editRule = async (id: number) => {
     if (killInput) killInput.value = rule.killPoints.toString();
     if (reviveInput) reviveInput.value = rule.revivePoints.toString();
     if (roundingInput) roundingInput.value = rule.roundingMode;
-    if (titleEl) titleEl.textContent = 'Edit Rule';
+    if (titleEl) titleEl.textContent = t('rules.edit');
     
     openModal('modal-rule');
   } catch (error) {
     console.error('Failed to load rule:', error);
-    showToast('Failed to load rule', 'error');
+    showToast(t('toast.ruleLoadFailed'), 'error');
   }
 };
 
@@ -1227,28 +1611,35 @@ window.activateRule = async (id: number) => {
   try {
     const api = getAPI();
     await api.rules.activate(id);
-    showToast('Rule activated');
+    showToast(t('toast.ruleActivated'));
     loadRules();
     loadDashboard();
   } catch (error) {
     console.error('Failed to activate rule:', error);
-    showToast('Failed to activate rule', 'error');
+    showToast(t('toast.ruleActivateFailed'), 'error');
   }
 };
 
 window.deleteRule = async (id: number) => {
-  if (!confirm('Are you sure you want to delete this rule?')) return;
-  
-  try {
-    const api = getAPI();
-    await api.rules.delete(id);
-    showToast('Rule deleted');
-    loadRules();
-    loadDashboard();
-  } catch (error) {
-    console.error('Failed to delete rule:', error);
-    showToast('Failed to delete rule', 'error');
-  }
+  openConfirmModal(
+    t('confirm.ruleDelete.title'),
+    t('confirm.ruleDelete.message'),
+    t('confirm.ruleDelete.confirm'),
+    async () => {
+      try {
+        const api = getAPI();
+        await api.rules.delete(id);
+        showToast(t('toast.ruleDeleted'));
+        loadRules();
+        loadDashboard();
+      } catch (error) {
+        console.error('Failed to delete rule:', error);
+        showToast(t('toast.ruleDeleteFailed'), 'error');
+      }
+    },
+    'btn-danger',
+    'danger'
+  );
 };
 
 window.viewMatchDetail = async (matchId: string) => {
@@ -1267,34 +1658,34 @@ window.viewMatchDetail = async (matchId: string) => {
     contentEl.innerHTML = `
       <div class="status-grid" style="margin-bottom: 1.5rem;">
         <div class="status-item">
-          <span class="status-label">Match ID</span>
+          <span class="status-label">${t('detail.matchId')}</span>
           <span class="status-value">${match.matchId}</span>
         </div>
         <div class="status-item">
-          <span class="status-label">Map</span>
-          <span class="status-value">${match.mapName || 'Unknown'}</span>
+          <span class="status-label">${t('detail.map')}</span>
+          <span class="status-value">${match.mapName || t('common.unknown')}</span>
         </div>
         <div class="status-item">
-          <span class="status-label">Mode</span>
-          <span class="status-value">${match.gameMode || 'Unknown'}</span>
+          <span class="status-label">${t('detail.mode')}</span>
+          <span class="status-value">${match.gameMode || t('common.unknown')}</span>
         </div>
         <div class="status-item">
-          <span class="status-label">Status</span>
-          <span class="status-value"><span class="status-badge status-${match.status}">${match.status}</span></span>
+          <span class="status-label">${t('detail.status')}</span>
+          <span class="status-value"><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></span>
         </div>
       </div>
       
       ${players.length > 0 ? `
-        <h4 style="margin-bottom: 1rem;">Players</h4>
+        <h4 style="margin-bottom: 1rem;">${t('detail.players')}</h4>
         <div class="table-wrapper">
           <table class="data-table">
             <thead>
               <tr>
-                <th>Player</th>
-                <th>Damage</th>
-                <th>Kills</th>
-                <th>Revives</th>
-                 <th>Points</th>
+                <th>${t('detail.player')}</th>
+                <th>${t('detail.damage')}</th>
+                <th>${t('detail.kills')}</th>
+                <th>${t('detail.revives')}</th>
+                 <th>${t('detail.points')}</th>
               </tr>
             </thead>
             <tbody>
@@ -1310,27 +1701,311 @@ window.viewMatchDetail = async (matchId: string) => {
             </tbody>
           </table>
         </div>
-      ` : '<p class="text-muted">No player data available</p>'}
+      ` : `<p class="text-muted">${t('detail.noPlayerData')}</p>`}
     `;
     
     openModal('modal-match-detail');
   } catch (error) {
     console.error('Failed to load match details:', error);
-    showToast('Failed to load match details', 'error');
+    showToast(t('toast.matchDetailsFailed'), 'error');
   }
 };
+
+/**
+ * Custom Dropdown Initialization
+ * Converts native <select> elements into styled custom dropdowns
+ */
+function initCustomDropdowns() {
+  // Close all open dropdowns when clicking outside
+  document.addEventListener('click', (e) => {
+    const openDropdowns = document.querySelectorAll('.custom-dropdown-trigger.open');
+    openDropdowns.forEach(trigger => {
+      const dropdown = trigger.closest('.custom-dropdown');
+      if (dropdown && !dropdown.contains(e.target as Node)) {
+        closeDropdown(trigger as HTMLElement);
+      }
+    });
+  });
+
+  // Close all dropdowns on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const openDropdowns = document.querySelectorAll('.custom-dropdown-trigger.open');
+      openDropdowns.forEach(trigger => {
+        closeDropdown(trigger as HTMLElement);
+      });
+    }
+  });
+
+  // Initialize all select elements
+  document.querySelectorAll('select.form-select').forEach(selectEl => {
+    const select = selectEl as HTMLSelectElement;
+    if (select.closest('.custom-dropdown')) return; // Already initialized
+
+    // Create wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'custom-dropdown';
+    select.parentNode?.insertBefore(wrapper, select);
+    wrapper.appendChild(select);
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+
+    // Create trigger
+    const trigger = document.createElement('div');
+    trigger.className = 'custom-dropdown-trigger';
+    trigger.setAttribute('tabindex', '0');
+    trigger.setAttribute('role', 'combobox');
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    
+    // Get selected option text
+    const selectedOption = select.options[select.selectedIndex];
+    trigger.textContent = selectedOption?.textContent || '';
+    wrapper.appendChild(trigger);
+
+    if (select.id) {
+      document.querySelectorAll(`label[for="${select.id}"]`).forEach((label) => {
+        label.addEventListener('click', (event) => {
+          event.preventDefault();
+          trigger.focus();
+          if (!trigger.classList.contains('open')) {
+            openDropdown(trigger);
+          }
+        });
+      });
+    }
+
+    // Create menu
+    const menu = document.createElement('div');
+    menu.className = 'custom-dropdown-menu hidden';
+    menu.setAttribute('role', 'listbox');
+    wrapper.appendChild(menu);
+
+    // Populate options
+    function populateOptions() {
+      menu.innerHTML = '';
+      Array.from(select.options).forEach((option) => {
+        const optionEl = document.createElement('div');
+        optionEl.className = 'custom-dropdown-option';
+        optionEl.setAttribute('role', 'option');
+        optionEl.setAttribute('data-value', option.value);
+        optionEl.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+        optionEl.textContent = option.textContent || '';
+        
+        if (option.selected) {
+          optionEl.classList.add('selected');
+        }
+        
+        if (option.disabled) {
+          optionEl.classList.add('disabled');
+        }
+
+        // Click handler
+        optionEl.addEventListener('click', () => {
+          if (!option.disabled) {
+            select.value = option.value;
+            updateSelectedValue(wrapper, option.value);
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            closeDropdown(trigger);
+            trigger.focus();
+          }
+        });
+
+        menu.appendChild(optionEl);
+      });
+    }
+
+    populateOptions();
+
+    // Trigger click handler
+    trigger.addEventListener('click', () => {
+      if (trigger.classList.contains('open')) {
+        closeDropdown(trigger);
+      } else {
+        // Close other open dropdowns first
+        document.querySelectorAll('.custom-dropdown-trigger.open').forEach(otherTrigger => {
+          if (otherTrigger !== trigger) {
+            closeDropdown(otherTrigger as HTMLElement);
+          }
+        });
+        openDropdown(trigger);
+      }
+    });
+
+    // Trigger keyboard navigation
+    trigger.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'Enter':
+        case ' ': {
+          e.preventDefault();
+          trigger.click();
+          break;
+        }
+        case 'ArrowDown': {
+          e.preventDefault();
+          if (!trigger.classList.contains('open')) {
+            openDropdown(trigger);
+          }
+          focusNextOption(menu);
+          break;
+        }
+        case 'ArrowUp': {
+          e.preventDefault();
+          if (!trigger.classList.contains('open')) {
+            openDropdown(trigger);
+          }
+          focusPrevOption(menu);
+          break;
+        }
+      }
+    });
+
+    // Menu keyboard navigation
+    menu.addEventListener('keydown', (e) => {
+      switch(e.key) {
+        case 'Enter':
+        case ' ': {
+          e.preventDefault();
+          const focused = menu.querySelector('.custom-dropdown-option.focused') as HTMLElement | null;
+          if (focused && !focused.classList.contains('disabled')) {
+            focused.click();
+          }
+          break;
+        }
+        case 'ArrowDown': {
+          e.preventDefault();
+          focusNextOption(menu);
+          break;
+        }
+        case 'ArrowUp': {
+          e.preventDefault();
+          focusPrevOption(menu);
+          break;
+        }
+        case 'Tab': {
+          closeDropdown(trigger);
+          break;
+        }
+      }
+    });
+
+    // Update trigger text when select value changes programmatically
+    select.addEventListener('change', () => {
+      updateSelectedValue(wrapper, select.value);
+    });
+
+    // Mutation observer to update options if they change dynamically (like language select)
+    const observer = new MutationObserver(() => {
+      populateOptions();
+      updateSelectedValue(wrapper, select.value);
+    });
+
+    observer.observe(select, { childList: true, subtree: true });
+  });
+}
+
+function openDropdown(trigger: HTMLElement) {
+  const menu = trigger.nextElementSibling as HTMLElement;
+  if (!menu) return;
+
+  trigger.classList.add('open');
+  trigger.setAttribute('aria-expanded', 'true');
+  menu.classList.remove('hidden');
+  
+  // Focus first selected option or first option
+  const selected = menu.querySelector('.custom-dropdown-option.selected');
+  const firstOption = menu.querySelector('.custom-dropdown-option:not(.disabled)');
+  (selected || firstOption)?.classList.add('focused');
+}
+
+function closeDropdown(trigger: HTMLElement) {
+  const menu = trigger.nextElementSibling as HTMLElement;
+  if (!menu) return;
+
+  trigger.classList.remove('open');
+  trigger.setAttribute('aria-expanded', 'false');
+  menu.classList.add('hidden');
+  
+  // Remove focused state
+  menu.querySelectorAll('.custom-dropdown-option.focused').forEach(el => {
+    el.classList.remove('focused');
+  });
+}
+
+function updateSelectedValue(wrapper: HTMLElement, value: string) {
+  const trigger = wrapper.querySelector('.custom-dropdown-trigger') as HTMLElement;
+  const menu = wrapper.querySelector('.custom-dropdown-menu') as HTMLElement;
+  const select = wrapper.querySelector('select') as HTMLSelectElement;
+
+  if (!trigger || !menu) return;
+
+  // Update trigger text
+  const selectedOption = Array.from(select.options).find(opt => opt.value === value);
+  if (selectedOption) {
+    trigger.textContent = selectedOption.textContent || '';
+  }
+
+  // Update selected classes
+  menu.querySelectorAll('.custom-dropdown-option').forEach(el => {
+    el.classList.remove('selected');
+    el.setAttribute('aria-selected', 'false');
+    if (el.getAttribute('data-value') === value) {
+      el.classList.add('selected');
+      el.setAttribute('aria-selected', 'true');
+    }
+  });
+}
+
+function focusNextOption(menu: HTMLElement) {
+  const options = Array.from(menu.querySelectorAll('.custom-dropdown-option:not(.disabled)'));
+  const currentIndex = options.findIndex(el => el.classList.contains('focused'));
+  const nextIndex = (currentIndex + 1) % options.length;
+
+  options.forEach(el => {
+    el.classList.remove('focused');
+  });
+  options[nextIndex]?.classList.add('focused');
+  options[nextIndex]?.scrollIntoView({ block: 'nearest' });
+}
+
+function focusPrevOption(menu: HTMLElement) {
+  const options = Array.from(menu.querySelectorAll('.custom-dropdown-option:not(.disabled)'));
+  const currentIndex = options.findIndex(el => el.classList.contains('focused'));
+  const prevIndex = currentIndex === -1 ? options.length - 1 : (currentIndex - 1 + options.length) % options.length;
+
+  options.forEach(el => {
+    el.classList.remove('focused');
+  });
+  options[prevIndex]?.classList.add('focused');
+  options[prevIndex]?.scrollIntoView({ block: 'nearest' });
+}
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    await loadLanguagePreference();
+
     // Initial data load
     await loadAppStatus();
+    
+    // Initialize custom dropdowns
+    initCustomDropdowns();
     
     // Hide loading screen after a brief delay
     setTimeout(() => {
       hideLoadingScreen();
-      navigateTo('dashboard');
+      // Load last active view from localStorage, default to dashboard
+      const lastView = localStorage.getItem('lastActiveView') || 'dashboard';
+      navigateTo(lastView);
     }, 1000);
+
+    // Restore view when window becomes active again
+    window.addEventListener('focus', () => {
+      const lastView = localStorage.getItem('lastActiveView') || 'dashboard';
+      if (getActiveViewId() !== lastView) {
+        navigateTo(lastView);
+      }
+    });
     
     // Navigation
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -1351,6 +2026,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (e.target === e.currentTarget) {
         closeAllModals();
       }
+    });
+    
+    // Confirm modal confirm button
+    document.getElementById('confirm-modal-confirm')?.addEventListener('click', () => {
+      if (confirmCallback) {
+        confirmCallback();
+      }
+      closeAllModals();
     });
     
     // Quick action buttons
@@ -1378,7 +2061,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const titleEl = document.getElementById('rule-modal-title');
       
       if (idInput) idInput.value = '';
-      if (titleEl) titleEl.textContent = 'Create Rule';
+      if (titleEl) titleEl.textContent = t('rules.create');
       
       openModal('modal-rule');
     });
@@ -1396,10 +2079,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
     document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
     document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
+    document.getElementById('language-settings-form')?.addEventListener('submit', handleLanguageSubmit);
+    
+     // Settings page event listeners
+     document.getElementById('account-settings-form')?.addEventListener('submit', handleAccountSettingsSubmit);
+     document.getElementById('api-key-settings-form')?.addEventListener('submit', handleApiKeySettingsSubmit);
+     document.getElementById('btn-sync-friends-manual')?.addEventListener('click', handleManualTeammateSync);
+     document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
     
   } catch (error) {
     console.error('Failed to initialize app:', error);
-    showErrorScreen('Failed to initialize the application. Please try again.');
+    showErrorScreen(t('error.connectionMessage'));
   }
 });
 

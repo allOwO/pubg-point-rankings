@@ -23,11 +23,11 @@
             <circle cx="24" cy="24" r="4" fill="currentColor"/>
           </svg>
         </div>
-        <h1 class="loading-title">PUBG Points</h1>
+        <h1 class="loading-title" data-i18n="app.title">PUBG Point Rankings</h1>
         <div class="loading-bar">
           <div class="loading-bar-fill"></div>
         </div>
-        <p class="loading-text">Initializing...</p>
+        <p class="loading-text" data-i18n="loading.initializing">Initializing...</p>
       </div>
     </div>
 
@@ -42,9 +42,9 @@
             <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
         </div>
-        <h2 class="error-title">Connection Error</h2>
-        <p class="error-message" id="error-message">Unable to connect to the backend.</p>
-        <button type="button" class="btn btn-primary" onclick="location.reload()">Retry</button>
+        <h2 class="error-title" data-i18n="error.connectionTitle">Connection Error</h2>
+        <p class="error-message" id="error-message" data-i18n="error.connectionMessage">Unable to connect to the backend.</p>
+        <button type="button" class="btn btn-primary" onclick="location.reload()" data-i18n="action.retry">Retry</button>
       </div>
     </div>
 
@@ -64,7 +64,7 @@
           </div>
           <div class="sync-status" id="sync-status-indicator">
             <span class="status-dot"></span>
-            <span class="status-text">Ready</span>
+            <span class="status-text" data-i18n="status.ready">Ready</span>
           </div>
         </div>
 
@@ -77,7 +77,7 @@
               <rect x="14" y="14" width="7" height="7"/>
               <rect x="3" y="14" width="7" height="7"/>
             </svg>
-            <span>Dashboard</span>
+            <span data-i18n="nav.dashboard">Dashboard</span>
           </a>
           <a href="#teammates" class="nav-item" data-view="teammates">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -87,7 +87,7 @@
               <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
               <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
-                  <span>好友列表</span>
+                  <span data-i18n="nav.friends">Friends</span>
           </a>
           <a href="#rules" class="nav-item" data-view="rules">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -98,26 +98,34 @@
               <line x1="16" y1="17" x2="8" y2="17"/>
               <polyline points="10 9 9 9 8 9"/>
             </svg>
-            <span>Rules</span>
+            <span data-i18n="nav.rules">Rules</span>
           </a>
           <a href="#matches" class="nav-item" data-view="matches">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <title>Match history navigation</title>
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
             </svg>
-            <span>Match History</span>
+            <span data-i18n="nav.matches">Match History</span>
           </a>
-          <a href="#points" class="nav-item" data-view="points">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <title>Point history navigation</title>
-              <circle cx="12" cy="8" r="7"/>
-              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
-            </svg>
-            <span>Point History</span>
-          </a>
-        </nav>
+           <a href="#points" class="nav-item" data-view="points">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+               <title>Point history navigation</title>
+               <circle cx="12" cy="8" r="7"/>
+               <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+             </svg>
+              <span data-i18n="nav.points">Point History</span>
+           </a>
+           <a href="#settings" class="nav-item" data-view="settings">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+               <title>Settings navigation</title>
+               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+               <circle cx="12" cy="12" r="3"/>
+             </svg>
+              <span data-i18n="nav.settings">Settings</span>
+           </a>
+         </nav>
 
-        <div class="sidebar-footer">
+         <div class="sidebar-footer">
           <div class="version">v<span id="app-version">1.0.0</span></div>
         </div>
       </aside>
@@ -127,45 +135,45 @@
         <!-- Dashboard View -->
         <section id="view-dashboard" class="view active">
           <header class="view-header">
-            <h1>Dashboard</h1>
-            <p class="view-subtitle">Overview and quick actions</p>
+            <h1 data-i18n="dashboard.title">Dashboard</h1>
+            <p class="view-subtitle" data-i18n="dashboard.subtitle">Overview and quick actions</p>
           </header>
 
           <div class="dashboard-grid">
             <!-- Status Card -->
             <div class="card card-featured">
               <div class="card-header">
-                <h3>System Status</h3>
+                <h3 data-i18n="dashboard.systemStatus">System Status</h3>
                 <span class="badge badge-success" id="system-status-badge">Online</span>
               </div>
               <div class="card-body">
                 <div class="status-grid">
                   <div class="status-item">
-                    <span class="status-label">Database</span>
+                    <span class="status-label" data-i18n="dashboard.database">Database</span>
                     <span class="status-value" id="db-status">Checking...</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Last Sync</span>
+                    <span class="status-label" data-i18n="dashboard.lastSync">Last Sync</span>
                     <span class="status-value" id="last-sync">Never</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Runtime</span>
+                    <span class="status-label" data-i18n="dashboard.runtime">Runtime</span>
                     <span class="status-value" id="runtime-status">Checking...</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Current Match</span>
+                    <span class="status-label" data-i18n="dashboard.currentMatch">Current Match</span>
                     <span class="status-value" id="current-match-status">Checking...</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Game Process</span>
+                    <span class="status-label" data-i18n="dashboard.gameProcess">Game Process</span>
                     <span class="status-value" id="game-process-status">Checking...</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Active Rule</span>
+                    <span class="status-label" data-i18n="dashboard.activeRule">Active Rule</span>
                     <span class="status-value" id="active-rule">Loading...</span>
                   </div>
                   <div class="status-item">
-                    <span class="status-label">Total Points</span>
+                    <span class="status-label" data-i18n="dashboard.totalPoints">Total Points</span>
                     <span class="status-value" id="total-points">--</span>
                   </div>
                 </div>
@@ -175,7 +183,7 @@
             <!-- Quick Actions -->
             <div class="card">
               <div class="card-header">
-                <h3>Quick Actions</h3>
+                <h3 data-i18n="dashboard.quickActions">Quick Actions</h3>
               </div>
               <div class="card-body">
                 <div class="action-buttons">
@@ -184,7 +192,7 @@
                       <title>Sync latest match</title>
                       <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
                     </svg>
-                    <span id="btn-sync-now-label">Sync Now</span>
+                    <span id="btn-sync-now-label" data-i18n="dashboard.syncNow">Sync Now</span>
                   </button>
                   <button type="button" class="btn btn-secondary" id="btn-add-teammate">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -194,7 +202,7 @@
                       <line x1="20" y1="8" x2="20" y2="14"/>
                       <line x1="23" y1="11" x2="17" y2="11"/>
                     </svg>
-                    手动同步好友
+                    <span data-i18n="dashboard.syncFriends">Sync Friends</span>
                   </button>
                 </div>
               </div>
@@ -202,57 +210,57 @@
 
             <div class="card card-wide">
               <div class="card-header">
-                <h3>Polling Settings</h3>
+                <h3 data-i18n="dashboard.pollingSettings">Polling Settings</h3>
               </div>
               <div class="card-body">
                 <form id="polling-settings-form">
                   <div class="form-group form-checkbox">
                     <input type="checkbox" id="setting-auto-recent-match-enabled" class="form-checkbox-input">
-                    <label for="setting-auto-recent-match-enabled">Enable automatic recent-match checks</label>
+                      <label for="setting-auto-recent-match-enabled" data-i18n="polling.autoRecent">Enable automatic recent-match checks</label>
                   </div>
 
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="setting-running-process-check-interval-seconds">Running process check interval (seconds)</label>
+                      <label for="setting-running-process-check-interval-seconds" data-i18n="polling.runningProcessCheck">Running process check interval (seconds)</label>
                       <input type="number" id="setting-running-process-check-interval-seconds" class="form-input" min="1" step="1" required>
                     </div>
                     <div class="form-group">
-                      <label for="setting-not-running-process-check-interval-seconds">Not-running process check interval (seconds)</label>
+                      <label for="setting-not-running-process-check-interval-seconds" data-i18n="polling.notRunningProcessCheck">Not-running process check interval (seconds)</label>
                       <input type="number" id="setting-not-running-process-check-interval-seconds" class="form-input" min="1" step="1" required>
                     </div>
                   </div>
 
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="setting-running-recent-match-interval-seconds">Running recent-match interval (seconds)</label>
+                      <label for="setting-running-recent-match-interval-seconds" data-i18n="polling.runningRecentMatch">Running recent-match interval (seconds)</label>
                       <input type="number" id="setting-running-recent-match-interval-seconds" class="form-input" min="1" step="1" required>
                     </div>
                     <div class="form-group">
-                      <label for="setting-cooldown-polling-interval-seconds">Cooldown polling interval (seconds)</label>
+                      <label for="setting-cooldown-polling-interval-seconds" data-i18n="polling.cooldownPolling">Cooldown polling interval (seconds)</label>
                       <input type="number" id="setting-cooldown-polling-interval-seconds" class="form-input" min="1" step="1" required>
                     </div>
                   </div>
 
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="setting-cooldown-window-minutes">Cooldown window (minutes)</label>
+                      <label for="setting-cooldown-window-minutes" data-i18n="polling.cooldownWindow">Cooldown window (minutes)</label>
                       <input type="number" id="setting-cooldown-window-minutes" class="form-input" min="1" step="1" required>
                     </div>
                     <div class="form-group">
-                      <label for="setting-recent-match-retry-delay-seconds">Retry delay (seconds)</label>
+                      <label for="setting-recent-match-retry-delay-seconds" data-i18n="polling.retryDelay">Retry delay (seconds)</label>
                       <input type="number" id="setting-recent-match-retry-delay-seconds" class="form-input" min="0" step="1" required>
                     </div>
                   </div>
 
                   <div class="form-row">
                     <div class="form-group">
-                      <label for="setting-recent-match-retry-limit">Retry limit</label>
+                      <label for="setting-recent-match-retry-limit" data-i18n="polling.retryLimit">Retry limit</label>
                       <input type="number" id="setting-recent-match-retry-limit" class="form-input" min="0" step="1" required>
                     </div>
                   </div>
 
                   <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">Save Polling Settings</button>
+                    <button type="submit" class="btn btn-primary" data-i18n="polling.save">Save Polling Settings</button>
                   </div>
                 </form>
               </div>
@@ -261,8 +269,8 @@
             <!-- Recent Matches -->
             <div class="card card-wide">
               <div class="card-header">
-                <h3>Recent Matches</h3>
-                <a href="#matches" class="link">View All</a>
+                <h3 data-i18n="dashboard.recentMatches">Recent Matches</h3>
+                <a href="#matches" class="link" data-i18n="dashboard.viewAll">View All</a>
               </div>
               <div class="card-body">
                 <div class="empty-state" id="recent-matches-empty">
@@ -272,18 +280,18 @@
                       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                     </svg>
                   </div>
-                  <p>No matches recorded yet</p>
-                  <span class="empty-hint">Sync to fetch your latest matches</span>
+                  <p data-i18n="matches.emptyTitle">No Matches Found</p>
+                  <span class="empty-hint" data-i18n="matches.emptyHint">Sync a match to start populating history.</span>
                 </div>
                 <div class="table-container hidden" id="recent-matches-table">
                   <table class="data-table">
                     <thead>
                       <tr>
-                        <th>Match</th>
-                        <th>Map</th>
-                        <th>Mode</th>
-                        <th>Date</th>
-                        <th>Status</th>
+                        <th data-i18n="detail.matchId">Match ID</th>
+                        <th data-i18n="detail.map">Map</th>
+                        <th data-i18n="detail.mode">Mode</th>
+                        <th data-i18n="common.date">Date</th>
+                        <th data-i18n="detail.status">Status</th>
                       </tr>
                     </thead>
                     <tbody id="recent-matches-list"></tbody>
@@ -295,8 +303,8 @@
             <!-- Friends -->
             <div class="card card-wide">
               <div class="card-header">
-                <h3>好友列表</h3>
-                <a href="#teammates" class="link">View All</a>
+                <h3 data-i18n="dashboard.friends">Friends</h3>
+                <a href="#teammates" class="link" data-i18n="dashboard.viewAll">View All</a>
               </div>
               <div class="card-body">
                 <div class="empty-state" id="top-teammates-empty">
@@ -309,8 +317,8 @@
                       <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                     </svg>
                   </div>
-                  <p>暂无好友</p>
-                  <span class="empty-hint">先添加一位好友，再自动同步完整好友列表</span>
+                  <p data-i18n="friends.noFriendsTitle">No friends yet</p>
+                  <span class="empty-hint" data-i18n="friends.noFriendsHint">Use manual sync to refresh friends from your recent matches</span>
                 </div>
                 <div class="teammates-grid hidden" id="top-teammates-list"></div>
               </div>
@@ -323,15 +331,15 @@
           <header class="view-header">
             <div class="view-header-content">
               <div>
-                <h1>好友列表</h1>
-                <p class="view-subtitle">展示好友 ID 与已保存昵称，可手动同步刷新列表</p>
+                <h1 data-i18n="friends.title">Friends</h1>
+                <p class="view-subtitle" data-i18n="friends.subtitle">Review saved friends and refresh them from recent matches</p>
               </div>
               <button type="button" class="btn btn-primary" id="btn-new-teammate">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <title>Manual friend sync</title>
                   <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
                 </svg>
-                手动同步
+                <span data-i18n="settings.syncFriendsNow">Sync Friends Now</span>
               </button>
             </div>
           </header>
@@ -347,9 +355,9 @@
                   <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                 </svg>
               </div>
-               <h3>还没有好友</h3>
-               <p>先添加一位好友，系统会在首次添加后自动同步好友列表</p>
-               <button type="button" class="btn btn-primary" id="btn-empty-add-teammate">添加首位好友</button>
+               <h3 data-i18n="friends.noFriendsTitle">No friends yet</h3>
+               <p data-i18n="friends.noFriendsActionHint">Sync recent matches to discover and refresh friends for the active account.</p>
+               <button type="button" class="btn btn-primary" id="btn-empty-add-teammate" data-i18n="friends.addFirst">Add First Friend</button>
             </div>
 
             <div class="teammates-list hidden" id="teammates-list"></div>
@@ -361,8 +369,8 @@
           <header class="view-header">
             <div class="view-header-content">
               <div>
-                <h1>Point Rules</h1>
-                <p class="view-subtitle">Configure how points are calculated</p>
+                <h1 data-i18n="rules.title">Point Rules</h1>
+                <p class="view-subtitle" data-i18n="rules.subtitle">Configure scoring presets for damage, kills, and revives</p>
               </div>
               <button type="button" class="btn btn-primary" id="btn-new-rule">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -370,7 +378,7 @@
                   <line x1="12" y1="5" x2="12" y2="19"/>
                   <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
-                Create Rule
+                <span data-i18n="rules.create">Create Rule</span>
               </button>
             </div>
           </header>
@@ -384,9 +392,9 @@
                   <polyline points="14 2 14 8 20 8"/>
                 </svg>
               </div>
-              <h3>No Rules Configured</h3>
-              <p>Create your first rule to start calculating points</p>
-              <button type="button" class="btn btn-primary" id="btn-empty-create-rule">Create Rule</button>
+              <h3 data-i18n="rules.emptyTitle">No Rules Configured</h3>
+              <p data-i18n="rules.emptyHint">Create your first rule to start calculating points.</p>
+              <button type="button" class="btn btn-primary" id="btn-empty-create-rule" data-i18n="rules.createFirst">Create First Rule</button>
             </div>
 
             <div class="rules-list hidden" id="rules-list"></div>
@@ -396,8 +404,8 @@
         <!-- Match History View -->
         <section id="view-matches" class="view">
           <header class="view-header">
-            <h1>Match History</h1>
-            <p class="view-subtitle">All synced matches and their details</p>
+            <h1 data-i18n="matches.title">Match History</h1>
+            <p class="view-subtitle" data-i18n="matches.subtitle">Inspect synced matches and trigger manual match sync</p>
           </header>
 
           <div class="view-content">
@@ -408,9 +416,9 @@
                   <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
                 </svg>
               </div>
-              <h3>No Matches Found</h3>
-              <p>Sync with PUBG to fetch your match history</p>
-              <button type="button" class="btn btn-primary" id="btn-empty-sync-matches">Sync Now</button>
+              <h3 data-i18n="matches.emptyTitle">No Matches Found</h3>
+              <p data-i18n="matches.emptyHint">Sync a match to start populating history.</p>
+              <button type="button" class="btn btn-primary" id="btn-empty-sync-matches" data-i18n="matches.syncMatch">Sync Match</button>
             </div>
 
             <div class="matches-container hidden" id="matches-container">
@@ -418,12 +426,12 @@
                 <table class="data-table data-table-full">
                   <thead>
                     <tr>
-                      <th>Match ID</th>
-                      <th>Map</th>
-                      <th>Mode</th>
-                      <th>Played At</th>
-                      <th>Status</th>
-                      <th>Actions</th>
+                      <th data-i18n="detail.matchId">Match ID</th>
+                      <th data-i18n="detail.map">Map</th>
+                      <th data-i18n="detail.mode">Mode</th>
+                      <th data-i18n="matches.playedAt">Played At</th>
+                      <th data-i18n="detail.status">Status</th>
+                      <th data-i18n="settings.actions">Actions</th>
                     </tr>
                   </thead>
                   <tbody id="matches-list"></tbody>
@@ -437,8 +445,8 @@
         <!-- Point History View -->
         <section id="view-points" class="view">
           <header class="view-header">
-            <h1>Point History</h1>
-            <p class="view-subtitle">All calculated point records</p>
+            <h1 data-i18n="points.title">Point History</h1>
+            <p class="view-subtitle" data-i18n="points.subtitle">Review awarded points across synced matches</p>
           </header>
 
           <div class="view-content">
@@ -450,8 +458,8 @@
                   <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
                 </svg>
               </div>
-              <h3>No Points Yet</h3>
-              <p>Complete matches to generate point records</p>
+              <h3 data-i18n="points.emptyTitle">No Points Yet</h3>
+              <p data-i18n="points.emptyHint">Point history will appear after match sync completes.</p>
             </div>
 
             <div class="points-container hidden" id="points-container">
@@ -460,11 +468,11 @@
                 <table class="data-table data-table-full">
                   <thead>
                     <tr>
-                      <th>Player</th>
-                      <th>Match</th>
-                      <th>Rule</th>
-                      <th>Amount</th>
-                      <th>Date</th>
+                      <th data-i18n="detail.player">Player</th>
+                      <th data-i18n="detail.matchId">Match ID</th>
+                      <th data-i18n="points.rule">Rule</th>
+                      <th data-i18n="points.amount">Amount</th>
+                      <th data-i18n="common.date">Date</th>
                     </tr>
                   </thead>
                   <tbody id="points-list"></tbody>
@@ -473,45 +481,146 @@
               <div class="pagination" id="points-pagination"></div>
             </div>
           </div>
-        </section>
-      </main>
-    </div>
+         </section>
+
+         <!-- Settings View -->
+         <section id="view-settings" class="view">
+           <header class="view-header">
+             <h1 data-i18n="settings.title">Settings</h1>
+             <p class="view-subtitle" data-i18n="settings.subtitle">Manage your account, API keys, language, and application preferences</p>
+           </header>
+            <div class="view-content">
+              <div class="card card-wide">
+                <div class="card-header">
+                  <h3 data-i18n="settings.actions">Actions</h3>
+                </div>
+                <div class="card-body">
+                  <div class="action-buttons">
+                    <button type="button" class="btn btn-secondary" id="btn-sync-friends-manual">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <title>Manual friend sync</title>
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 0 0 1-18.8 4.3"/>
+                      </svg>
+                      <span data-i18n="settings.syncFriendsNow">Sync Friends Now</span>
+                    </button>
+                    <button type="button" class="btn btn-danger" id="btn-logout">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <title>Logout</title>
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <polyline points="16 17 21 12 16 7"/>
+                        <line x1="21" y1="12" x2="9" y2="12"/>
+                      </svg>
+                      <span data-i18n="settings.logout">Logout</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="card card-wide">
+                <div class="card-header">
+                  <h3 data-i18n="settings.languageSection">Language</h3>
+                </div>
+                <div class="card-body">
+                  <form id="language-settings-form">
+                    <div class="form-group">
+                      <label for="app-language" data-i18n="settings.languageLabel">Application Language</label>
+                      <select id="app-language" class="form-select"></select>
+                      <p class="form-help" data-i18n="settings.languageHelp">Choose the display language for the application.</p>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary" data-i18n="settings.saveLanguage">Save Language</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div class="card card-wide">
+                <div class="card-header">
+                  <h3 data-i18n="settings.accountSection">Account Settings</h3>
+                </div>
+                <div class="card-body">
+                  <form id="account-settings-form">
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="account-name" data-i18n="settings.accountName">Account Name</label>
+                        <input type="text" id="account-name" class="form-input" data-i18n-placeholder="settings.accountName" placeholder="Account Name">
+                      </div>
+                      <div class="form-group">
+                        <label for="account-player-name" data-i18n="settings.playerName">PUBG Player Name *</label>
+                        <input type="text" id="account-player-name" class="form-input" data-i18n-placeholder="settings.playerName" placeholder="PUBG Player Name *" required>
+                      </div>
+                    </div>
+                    <div class="form-row">
+                      <div class="form-group">
+                        <label for="account-platform" data-i18n="settings.platform">Platform *</label>
+                        <select id="account-platform" class="form-select" required>
+                           <option value="steam" data-i18n="platform.steam">Steam</option>
+                           <option value="xbox" data-i18n="platform.xbox">Xbox</option>
+                           <option value="psn" data-i18n="platform.psn">PlayStation</option>
+                           <option value="kakao" data-i18n="platform.kakao">Kakao</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary" data-i18n="settings.saveAccount">Save Account Settings</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div class="card card-wide">
+                <div class="card-header">
+                  <h3 data-i18n="settings.apiKey">PUBG API Key</h3>
+                </div>
+                <div class="card-body">
+                  <form id="api-key-settings-form">
+                    <div class="form-group">
+                      <label for="account-api-key" data-i18n="settings.apiKey">PUBG API Key *</label>
+                      <input type="password" id="account-api-key" class="form-input" data-i18n-placeholder="settings.apiKey" placeholder="PUBG API Key *" required>
+                    </div>
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary" data-i18n="settings.saveApiKey">Save API Key</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+         </section>
+       </main>
+     </div>
 
     <!-- Modals -->
     <div id="modal-overlay" class="modal-overlay hidden">
       <!-- Friend Modal -->
       <div id="modal-teammate" class="modal hidden">
         <div class="modal-header">
-          <h3 id="teammate-modal-title">添加好友</h3>
+          <h3 id="teammate-modal-title" data-i18n="modal.friend.add">Add Friend</h3>
           <button type="button" class="modal-close" data-close-modal>&times;</button>
         </div>
         <div class="modal-body">
           <form id="teammate-form">
             <input type="hidden" id="teammate-id">
             <div class="form-group">
-              <label for="teammate-name">好友 ID / 玩家名 *</label>
-              <input type="text" id="teammate-name" class="form-input" placeholder="输入好友 ID 或 PUBG 玩家名" required>
+              <label for="teammate-name" data-i18n="modal.friendId">Friend ID / Player Name *</label>
+              <input type="text" id="teammate-name" class="form-input" data-i18n-placeholder="modal.friendIdPlaceholder" placeholder="Enter a PUBG player name" required>
             </div>
             <div class="form-group">
-              <label for="teammate-platform">Platform *</label>
+              <label for="teammate-platform" data-i18n="common.platform">Platform *</label>
               <select id="teammate-platform" class="form-select" required>
-                <option value="steam">Steam</option>
-                <option value="xbox">Xbox</option>
-                <option value="psn">PlayStation</option>
-                <option value="kakao">Kakao</option>
+                 <option value="steam" data-i18n="platform.steam">Steam</option>
+                 <option value="xbox" data-i18n="platform.xbox">Xbox</option>
+                 <option value="psn" data-i18n="platform.psn">PlayStation</option>
+                 <option value="kakao" data-i18n="platform.kakao">Kakao</option>
               </select>
             </div>
             <div class="form-group">
-              <label for="teammate-nickname">保存昵称</label>
-              <input type="text" id="teammate-nickname" class="form-input" placeholder="可选，方便本地识别">
+              <label for="teammate-nickname" data-i18n="modal.savedNickname">Saved Nickname</label>
+              <input type="text" id="teammate-nickname" class="form-input" data-i18n-placeholder="modal.savedNicknamePlaceholder" placeholder="Optional local nickname">
             </div>
             <div class="form-group form-checkbox" id="teammate-enabled-group">
               <input type="checkbox" id="teammate-enabled" class="form-checkbox-input" checked>
-              <label for="teammate-enabled">启用积分跟踪</label>
+              <label for="teammate-enabled" data-i18n="modal.enablePointTracking">Enable point tracking</label>
             </div>
             <div class="form-actions">
-              <button type="button" class="btn btn-secondary" data-close-modal>取消</button>
-              <button type="submit" class="btn btn-primary">保存</button>
+              <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" data-i18n="modal.save">Save</button>
             </div>
           </form>
         </div>
@@ -520,43 +629,43 @@
       <!-- Rule Modal -->
       <div id="modal-rule" class="modal hidden">
         <div class="modal-header">
-          <h3 id="rule-modal-title">Create Rule</h3>
+          <h3 id="rule-modal-title" data-i18n="modal.rule.create">Create Rule</h3>
           <button type="button" class="modal-close" data-close-modal>&times;</button>
         </div>
         <div class="modal-body">
           <form id="rule-form">
             <input type="hidden" id="rule-id">
             <div class="form-group">
-              <label for="rule-name">Rule Name *</label>
-              <input type="text" id="rule-name" class="form-input" placeholder="e.g., Standard Rules" required>
+              <label for="rule-name" data-i18n="modal.rule.name">Rule Name *</label>
+              <input type="text" id="rule-name" class="form-input" data-i18n-placeholder="modal.rule.namePlaceholder" placeholder="e.g., Standard Rules" required>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="rule-damage">Damage Points</label>
+                <label for="rule-damage" data-i18n="modal.rule.damage">Damage Points</label>
                 <input type="number" id="rule-damage" class="form-input" placeholder="0" min="0">
               </div>
               <div class="form-group">
-                <label for="rule-kill">Kill Points</label>
+                <label for="rule-kill" data-i18n="modal.rule.kill">Kill Points</label>
                 <input type="number" id="rule-kill" class="form-input" placeholder="0" min="0">
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="rule-revive">Revive Points</label>
+                <label for="rule-revive" data-i18n="modal.rule.revive">Revive Points</label>
                 <input type="number" id="rule-revive" class="form-input" placeholder="0" min="0">
               </div>
               <div class="form-group">
-                <label for="rule-rounding">Rounding Mode</label>
+                <label for="rule-rounding" data-i18n="modal.rule.rounding">Rounding Mode</label>
                 <select id="rule-rounding" class="form-select">
-                  <option value="round">Round</option>
-                  <option value="floor">Floor</option>
-                  <option value="ceil">Ceiling</option>
+                <option value="round" data-i18n="modal.rule.round">Round</option>
+                <option value="floor" data-i18n="modal.rule.floor">Floor</option>
+                <option value="ceil" data-i18n="modal.rule.ceil">Ceiling</option>
                 </select>
               </div>
             </div>
             <div class="form-actions">
-              <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
-              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" data-i18n="modal.save">Save</button>
             </div>
           </form>
         </div>
@@ -565,28 +674,28 @@
       <!-- Sync Match Modal -->
       <div id="modal-sync" class="modal hidden">
         <div class="modal-header">
-          <h3>Sync Match</h3>
+          <h3 data-i18n="modal.sync.title">Sync Match</h3>
           <button type="button" class="modal-close" data-close-modal>&times;</button>
         </div>
         <div class="modal-body">
           <form id="sync-form">
             <div class="form-group">
-              <label for="sync-match-id">Match ID *</label>
-              <input type="text" id="sync-match-id" class="form-input" placeholder="Enter match ID" required>
+              <label for="sync-match-id" data-i18n="modal.sync.matchId">Match ID *</label>
+              <input type="text" id="sync-match-id" class="form-input" data-i18n-placeholder="modal.sync.matchIdPlaceholder" placeholder="Enter match ID" required>
             </div>
             <div class="form-group">
-              <label for="sync-platform">Platform *</label>
+              <label for="sync-platform" data-i18n="common.platform">Platform *</label>
               <select id="sync-platform" class="form-select" required>
-                <option value="steam">Steam</option>
-                <option value="xbox">Xbox</option>
-                <option value="psn">PlayStation</option>
-                <option value="kakao">Kakao</option>
+                 <option value="steam" data-i18n="platform.steam">Steam</option>
+                 <option value="xbox" data-i18n="platform.xbox">Xbox</option>
+                 <option value="psn" data-i18n="platform.psn">PlayStation</option>
+                 <option value="kakao" data-i18n="platform.kakao">Kakao</option>
               </select>
             </div>
             <div class="form-actions">
-              <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+              <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
               <button type="submit" class="btn btn-primary">
-                <span class="btn-text">Sync</span>
+                <span class="btn-text" data-i18n="matches.syncMatch">Sync Match</span>
                 <span class="btn-spinner hidden"></span>
               </button>
             </div>
@@ -597,11 +706,36 @@
       <!-- Match Detail Modal -->
       <div id="modal-match-detail" class="modal modal-large hidden">
         <div class="modal-header">
-          <h3>Match Details</h3>
+          <h3 data-i18n="modal.matchDetails">Match Details</h3>
           <button type="button" class="modal-close" data-close-modal>&times;</button>
         </div>
         <div class="modal-body">
           <div id="match-detail-content"></div>
+        </div>
+      </div>
+
+      <!-- Confirmation Modal -->
+      <div id="modal-confirm" class="modal hidden">
+        <div class="modal-header">
+          <div class="modal-header-with-icon">
+            <div id="confirm-modal-icon" class="modal-icon modal-icon-info hidden">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <title>Confirmation icon</title>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+              </svg>
+            </div>
+            <h3 id="confirm-modal-title" data-i18n="modal.confirmTitle">Confirm Action</h3>
+          </div>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="confirm-modal-message"></p>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" data-close-modal id="confirm-modal-cancel" data-i18n="modal.cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" id="confirm-modal-confirm" data-i18n="modal.confirm">Confirm</button>
+          </div>
         </div>
       </div>
     </div>

@@ -15,6 +15,17 @@ import type {
   UpdateTeammateInput,
 } from '@pubg-point-rankings/shared';
 
+export interface Account {
+  id: number;
+  accountName: string;
+  selfPlayerName: string;
+  selfPlatform: 'steam' | 'xbox' | 'psn' | 'kakao';
+  pubgApiKey: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 type SyncStartResult = { success: boolean; error?: string };
 type SyncStartMatchResult = {
   success: boolean;
@@ -40,12 +51,32 @@ export interface AppAPIClient {
     getAll(): Promise<AppSetting[]>;
     set(key: string, value: string): Promise<void>;
   };
+   accounts: {
+     getAll(): Promise<Account[]>;
+     getActive(): Promise<Account | null>;
+     create(input: {
+       accountName: string;
+       selfPlayerName: string;
+       selfPlatform: Account['selfPlatform'];
+       pubgApiKey: string;
+       setActive?: boolean;
+     }): Promise<Account>;
+     switch(id: number): Promise<Account>;
+     updateActive(input: {
+       accountName?: string;
+       selfPlayerName?: string;
+       selfPlatform?: Account['selfPlatform'];
+       pubgApiKey?: string;
+     }): Promise<Account>;
+     logout(): Promise<void>;
+   };
   teammates: {
     getAll(): Promise<Teammate[]>;
     getById(id: number): Promise<Teammate | null>;
     create(input: CreateTeammateInput): Promise<Teammate>;
     update(input: UpdateTeammateInput): Promise<Teammate>;
     getHistory(id: number): Promise<{ teammate: Teammate; records: PointRecord[]; totalMatches: number }>;
+    syncManual(): Promise<{ success: boolean; scannedMatches: number; syncedTeammates: number; error?: string }>;
   };
   rules: {
     getAll(): Promise<PointRule[]>;
@@ -81,6 +112,17 @@ interface DateSettingDto {
   updatedAt: string;
 }
 
+interface AccountDto {
+  id: number;
+  accountName: string;
+  selfPlayerName: Account['selfPlayerName'];
+  selfPlatform: Account['selfPlatform'];
+  pubgApiKey: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface SyncStatusDto {
   isSyncing: boolean;
   lastSyncAt: string | null;
@@ -105,6 +147,7 @@ interface GameProcessStatusDto {
 
 interface TeammateDto {
   id: number;
+  accountId: number;
   platform: Teammate['platform'];
   pubgAccountId: string | null;
   pubgPlayerName: string;
@@ -118,6 +161,7 @@ interface TeammateDto {
 
 interface MatchDto {
   id: number;
+  accountId: number;
   matchId: string;
   platform: Match['platform'];
   mapName: string | null;
@@ -133,6 +177,7 @@ interface MatchDto {
 
 interface MatchPlayerDto {
   id: number;
+  accountId: number;
   matchId: string;
   teammateId: number | null;
   pubgAccountId: string | null;
@@ -151,6 +196,7 @@ interface MatchPlayerDto {
 
 interface PointRuleDto {
   id: number;
+  accountId: number;
   name: string;
   damagePointsPerDamage: number;
   killPoints: number;
@@ -163,6 +209,7 @@ interface PointRuleDto {
 
 interface PointRecordDto {
   id: number;
+  accountId: number;
   matchId: string;
   matchPlayerId: number;
   teammateId: number | null;
@@ -188,6 +235,14 @@ function toDate(value: string | null): Date | null {
 
 function hydrateSetting(dto: DateSettingDto): AppSetting {
   return { ...dto, updatedAt: new Date(dto.updatedAt) };
+}
+
+function hydrateAccount(dto: AccountDto): Account {
+  return {
+    ...dto,
+    createdAt: new Date(dto.createdAt),
+    updatedAt: new Date(dto.updatedAt),
+  };
 }
 
 function hydrateSyncStatus(dto: SyncStatusDto): SyncStatus {
@@ -285,6 +340,19 @@ export function getAPI(): AppAPIClient {
         await invokeRequired('settings_set', { key, value });
       },
     },
+    accounts: {
+      getAll: async () => (await invokeOptional<AccountDto[]>('accounts_get_all', undefined, [])).map(hydrateAccount),
+      getActive: async () => {
+        const account = await invokeOptional<AccountDto | null>('accounts_get_active', undefined, null);
+        return account ? hydrateAccount(account) : null;
+      },
+      create: async (input) => hydrateAccount(await invokeRequired<AccountDto>('accounts_create', { input })),
+       switch: async (id) => hydrateAccount(await invokeRequired<AccountDto>('accounts_switch', { id })),
+       updateActive: async (input) => hydrateAccount(await invokeRequired<AccountDto>('accounts_update_active', { input })),
+       logout: async () => {
+         await invokeRequired('accounts_logout');
+       },
+    },
     teammates: {
       getAll: async () => (await invokeOptional<TeammateDto[]>('teammates_get_all', undefined, [])).map(hydrateTeammate),
       getById: async (id) => {
@@ -310,6 +378,7 @@ export function getAPI(): AppAPIClient {
           totalMatches: history.totalMatches,
         };
       },
+      syncManual: async () => invokeRequired('teammates_sync_manual'),
     },
     rules: {
       getAll: async () => (await invokeOptional<PointRuleDto[]>('rules_get_all', undefined, [])).map(hydrateRule),
