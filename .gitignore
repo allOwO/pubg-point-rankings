@@ -15,3 +15,12 @@ packages/renderer/src/app.js
 docs/
 .dmg
 .exe
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
+
+# macOS build artifacts
+*.app
+*.dmg
+*.exe

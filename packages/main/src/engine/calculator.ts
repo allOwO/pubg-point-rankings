@@ -4,14 +4,14 @@
  */
 
 import type { 
-  RedbagRule, 
+  PointRule, 
   PlayerStats, 
-  CalculatedRedbag, 
+  CalculatedPoints, 
   RoundingMode 
 } from '@pubg-point-rankings/shared';
 
 export interface CalculationInput {
-  rule: RedbagRule;
+  rule: PointRule;
   players: PlayerStats[];
   enabledPlayerIds: Set<string>;
 }
@@ -32,19 +32,19 @@ export function applyRounding(value: number, mode: RoundingMode): number {
 }
 
 /**
- * Calculate red bag for a single player
+ * Calculate points for a single player
  */
-export function calculatePlayerRedbag(
+export function calculatePlayerPoints(
   player: PlayerStats,
-  rule: RedbagRule,
+  rule: PointRule,
   isEnabled: boolean
-): CalculatedRedbag {
-  const damageCents = player.damage * rule.damageCentPerPoint;
-  const killsCents = player.kills * rule.killCent;
-  const revivesCents = player.revives * rule.reviveCent;
+): CalculatedPoints {
+  const damagePoints = player.damage * rule.damagePointsPerDamage;
+  const killPoints = player.kills * rule.killPoints;
+  const revivePoints = player.revives * rule.revivePoints;
   
-  const totalCents = isEnabled 
-    ? applyRounding(damageCents + killsCents + revivesCents, rule.roundingMode)
+  const totalPoints = isEnabled 
+    ? applyRounding(damagePoints + killPoints + revivePoints, rule.roundingMode)
     : 0;
 
   return {
@@ -53,31 +53,31 @@ export function calculatePlayerRedbag(
     damage: player.damage,
     kills: player.kills,
     revives: player.revives,
-    damageCents: applyRounding(damageCents, rule.roundingMode),
-    killsCents,
-    revivesCents,
-    totalCents,
-    isRedbagEnabled: isEnabled,
+    damagePoints: applyRounding(damagePoints, rule.roundingMode),
+    killPoints,
+    revivePoints,
+    totalPoints,
+    isPointsEnabled: isEnabled,
   };
 }
 
 /**
- * Calculate red bags for all players in a match
+ * Calculate points for all players in a match
  */
-export function calculateRedbags(input: CalculationInput): CalculatedRedbag[] {
+export function calculatePoints(input: CalculationInput): CalculatedPoints[] {
   return input.players.map(player => {
     const isEnabled = input.enabledPlayerIds.has(player.pubgAccountId);
-    return calculatePlayerRedbag(player, input.rule, isEnabled);
+    return calculatePlayerPoints(player, input.rule, isEnabled);
   });
 }
 
 /**
- * Calculate total red bag amount for the match
+ * Calculate total points for the match
  */
-export function calculateTotalRedbag(
-  redbags: CalculatedRedbag[]
+export function calculateTotalPoints(
+  points: CalculatedPoints[]
 ): number {
-  return redbags.reduce((sum, r) => sum + r.totalCents, 0);
+  return points.reduce((sum, record) => sum + record.totalPoints, 0);
 }
 
 /**

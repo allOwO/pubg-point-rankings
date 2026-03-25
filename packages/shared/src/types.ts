@@ -23,8 +23,8 @@ export interface Teammate {
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
-  isRedbagEnabled: boolean;
-  totalRedbagCents: number;
+  isPointsEnabled: boolean;
+  totalPoints: number;
   lastSeenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -58,35 +58,35 @@ export interface MatchPlayer {
   revives: number;
   placement: number | null;
   isSelf: boolean;
-  isRedbagEnabledSnapshot: boolean;
-  redbagCents: number;
+  isPointsEnabledSnapshot: boolean;
+  points: number;
   createdAt: Date;
 }
 
-export interface RedbagRule {
+export interface PointRule {
   id: number;
   name: string;
-  damageCentPerPoint: number;
-  killCent: number;
-  reviveCent: number;
+  damagePointsPerDamage: number;
+  killPoints: number;
+  revivePoints: number;
   isActive: boolean;
   roundingMode: RoundingMode;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface RedbagRecord {
+export interface PointRecord {
   id: number;
   matchId: string;
   matchPlayerId: number;
   teammateId: number | null;
   ruleId: number;
   ruleNameSnapshot: string;
-  damageCentPerPointSnapshot: number;
-  killCentSnapshot: number;
-  reviveCentSnapshot: number;
+  damagePointsPerDamageSnapshot: number;
+  killPointsSnapshot: number;
+  revivePointsSnapshot: number;
   roundingModeSnapshot: RoundingMode;
-  amountCents: number;
+  points: number;
   note: string | null;
   createdAt: Date;
 }
@@ -101,17 +101,17 @@ export interface PlayerStats {
   placement: number | null;
 }
 
-export interface CalculatedRedbag {
+export interface CalculatedPoints {
   pubgAccountId: string;
   pubgPlayerName: string;
   damage: number;
   kills: number;
   revives: number;
-  damageCents: number;
-  killsCents: number;
-  revivesCents: number;
-  totalCents: number;
-  isRedbagEnabled: boolean;
+  damagePoints: number;
+  killPoints: number;
+  revivePoints: number;
+  totalPoints: number;
+  isPointsEnabled: boolean;
 }
 
 export interface SyncStatus {

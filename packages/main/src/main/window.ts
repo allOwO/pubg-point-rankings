@@ -19,12 +19,10 @@ const WINDOW_MIN_HEIGHT = 600;
  * Get the preload script path
  */
 function getPreloadPath(): string {
-  // In development: use the compiled preload from renderer package
-  // In production: use the unpacked path within the app
   const isDev = process.env.NODE_ENV === 'development';
   
   if (isDev) {
-    return path.resolve(__dirname, '../../../renderer/dist/preload/preload.js');
+    return path.resolve(__dirname, '../../../renderer/bundle/preload/preload.js');
   }
   
   // In production, electron-builder places files in resources/app
@@ -38,7 +36,7 @@ function getRendererPath(): string {
   const isDev = process.env.NODE_ENV === 'development';
   
   if (isDev) {
-    return path.resolve(__dirname, '../../../renderer/dist/index.html');
+    return path.resolve(__dirname, '../../../renderer/bundle/index.html');
   }
   
   // In production

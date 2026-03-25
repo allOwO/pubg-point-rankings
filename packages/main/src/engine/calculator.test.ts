@@ -6,13 +6,13 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { 
   applyRounding, 
-  calculatePlayerRedbag, 
-  calculateRedbags,
-  calculateTotalRedbag,
+  calculatePlayerPoints,
+  calculatePoints,
+  calculateTotalPoints,
   formatPoints,
   parsePoints,
 } from './calculator';
-import type { RedbagRule, PlayerStats } from '@pubg-point-rankings/shared';
+import type { PointRule, PlayerStats } from '@pubg-point-rankings/shared';
 
 describe('applyRounding', () => {
   test('floor rounds down', () => {
@@ -32,13 +32,13 @@ describe('applyRounding', () => {
   });
 });
 
-describe('calculatePlayerRedbag', () => {
-  const rule: RedbagRule = {
+describe('calculatePlayerPoints', () => {
+  const rule: PointRule = {
     id: 1,
     name: 'Test Rule',
-    damageCentPerPoint: 2,
-    killCent: 300,
-    reviveCent: 150,
+    damagePointsPerDamage: 2,
+    killPoints: 300,
+    revivePoints: 150,
     isActive: true,
     roundingMode: 'round',
     createdAt: new Date(),
@@ -56,38 +56,38 @@ describe('calculatePlayerRedbag', () => {
   };
 
   test('calculates correct amounts for enabled player', () => {
-    const result = calculatePlayerRedbag(player, rule, true);
+    const result = calculatePlayerPoints(player, rule, true);
 
     assert.strictEqual(result.pubgAccountId, 'account123');
     assert.strictEqual(result.pubgPlayerName, 'TestPlayer');
     assert.strictEqual(result.damage, 256.4);
     assert.strictEqual(result.kills, 3);
     assert.strictEqual(result.revives, 2);
-    assert.strictEqual(result.damageCents, 513); // 256.4 * 2 = 512.8 -> round to 513
-    assert.strictEqual(result.killsCents, 900); // 3 * 300
-    assert.strictEqual(result.revivesCents, 300); // 2 * 150
-    assert.strictEqual(result.totalCents, 1713); // 513 + 900 + 300
-    assert.strictEqual(result.isRedbagEnabled, true);
+    assert.strictEqual(result.damagePoints, 513); // 256.4 * 2 = 512.8 -> round to 513
+    assert.strictEqual(result.killPoints, 900); // 3 * 300
+    assert.strictEqual(result.revivePoints, 300); // 2 * 150
+    assert.strictEqual(result.totalPoints, 1713); // 513 + 900 + 300
+    assert.strictEqual(result.isPointsEnabled, true);
   });
 
   test('returns zero for disabled player', () => {
-    const result = calculatePlayerRedbag(player, rule, false);
+    const result = calculatePlayerPoints(player, rule, false);
 
-    assert.strictEqual(result.damageCents, 513);
-    assert.strictEqual(result.killsCents, 900);
-    assert.strictEqual(result.revivesCents, 300);
-    assert.strictEqual(result.totalCents, 0); // Disabled = no payout
-    assert.strictEqual(result.isRedbagEnabled, false);
+    assert.strictEqual(result.damagePoints, 513);
+    assert.strictEqual(result.killPoints, 900);
+    assert.strictEqual(result.revivePoints, 300);
+    assert.strictEqual(result.totalPoints, 0); // Disabled = no payout
+    assert.strictEqual(result.isPointsEnabled, false);
   });
 });
 
-describe('calculateRedbags', () => {
-  const rule: RedbagRule = {
+describe('calculatePoints', () => {
+  const rule: PointRule = {
     id: 1,
     name: 'Test Rule',
-    damageCentPerPoint: 2,
-    killCent: 300,
-    reviveCent: 150,
+    damagePointsPerDamage: 2,
+    killPoints: 300,
+    revivePoints: 150,
     isActive: true,
     roundingMode: 'round',
     createdAt: new Date(),
@@ -124,47 +124,47 @@ describe('calculateRedbags', () => {
     },
   ];
 
-  test('calculates redbags for all players', () => {
+  test('calculates points for all players', () => {
     const enabledIds = new Set(['player1', 'player2', 'player3']);
-    const results = calculateRedbags({ rule, players, enabledPlayerIds: enabledIds });
+    const results = calculatePoints({ rule, players, enabledPlayerIds: enabledIds });
 
     assert.strictEqual(results.length, 3);
     
     // Player 1: 200 + 600 + 150 = 950
-    assert.strictEqual(results[0].totalCents, 950);
+    assert.strictEqual(results[0].totalPoints, 950);
     
     // Player 2: 400 + 300 + 0 = 700
-    assert.strictEqual(results[1].totalCents, 700);
+    assert.strictEqual(results[1].totalPoints, 700);
     
     // Player 3: 100 + 0 + 300 = 400
-    assert.strictEqual(results[2].totalCents, 400);
+    assert.strictEqual(results[2].totalPoints, 400);
   });
 
   test('excludes disabled players from payout', () => {
     const enabledIds = new Set(['player1', 'player2']); // player3 disabled
-    const results = calculateRedbags({ rule, players, enabledPlayerIds: enabledIds });
+    const results = calculatePoints({ rule, players, enabledPlayerIds: enabledIds });
 
-    assert.strictEqual(results[0].totalCents, 950);
-    assert.strictEqual(results[1].totalCents, 700);
-    assert.strictEqual(results[2].totalCents, 0); // Disabled
-    assert.strictEqual(results[2].isRedbagEnabled, false);
+    assert.strictEqual(results[0].totalPoints, 950);
+    assert.strictEqual(results[1].totalPoints, 700);
+    assert.strictEqual(results[2].totalPoints, 0); // Disabled
+    assert.strictEqual(results[2].isPointsEnabled, false);
   });
 });
 
-describe('calculateTotalRedbag', () => {
-  test('sums all redbag amounts', () => {
-    const redbags = [
+describe('calculateTotalPoints', () => {
+  test('sums all point amounts', () => {
+    const points = [
       {
         pubgAccountId: 'p1',
         pubgPlayerName: 'Player 1',
         damage: 100,
         kills: 1,
         revives: 0,
-        damageCents: 200,
-        killsCents: 300,
-        revivesCents: 0,
-        totalCents: 500,
-        isRedbagEnabled: true,
+        damagePoints: 200,
+        killPoints: 300,
+        revivePoints: 0,
+        totalPoints: 500,
+        isPointsEnabled: true,
       },
       {
         pubgAccountId: 'p2',
@@ -172,19 +172,19 @@ describe('calculateTotalRedbag', () => {
         damage: 200,
         kills: 2,
         revives: 1,
-        damageCents: 400,
-        killsCents: 600,
-        revivesCents: 150,
-        totalCents: 1150,
-        isRedbagEnabled: true,
+        damagePoints: 400,
+        killPoints: 600,
+        revivePoints: 150,
+        totalPoints: 1150,
+        isPointsEnabled: true,
       },
     ];
 
-    assert.strictEqual(calculateTotalRedbag(redbags), 1650);
+    assert.strictEqual(calculateTotalPoints(points), 1650);
   });
 
   test('returns zero for empty array', () => {
-    assert.strictEqual(calculateTotalRedbag([]), 0);
+    assert.strictEqual(calculateTotalPoints([]), 0);
   });
 });
 

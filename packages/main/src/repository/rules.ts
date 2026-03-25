@@ -1,12 +1,12 @@
 /**
- * Redbag Rules Repository
- * Handles CRUD operations for redbag_rules table
+ * Point Rules Repository
+ * Handles CRUD operations for point_rules table
  */
 
 import type { Database } from 'better-sqlite3';
-import type { RedbagRule, RoundingMode, CreateRedbagRuleInput, UpdateRedbagRuleInput } from '@pubg-point-rankings/shared';
+import type { PointRule, RoundingMode, CreatePointRuleInput, UpdatePointRuleInput } from '@pubg-point-rankings/shared';
 
-interface RedbagRuleRow {
+interface PointRuleRow {
   id: number;
   name: string;
   damage_cent_per_point: number;
@@ -18,13 +18,13 @@ interface RedbagRuleRow {
   updated_at: string;
 }
 
-function mapRowToRule(row: RedbagRuleRow): RedbagRule {
+function mapRowToRule(row: PointRuleRow): PointRule {
   return {
     id: row.id,
     name: row.name,
-    damageCentPerPoint: row.damage_cent_per_point,
-    killCent: row.kill_cent,
-    reviveCent: row.revive_cent,
+    damagePointsPerDamage: row.damage_cent_per_point,
+    killPoints: row.kill_cent,
+    revivePoints: row.revive_cent,
     isActive: row.is_active === 1,
     roundingMode: row.rounding_mode as RoundingMode,
     createdAt: new Date(row.created_at),
@@ -32,16 +32,16 @@ function mapRowToRule(row: RedbagRuleRow): RedbagRule {
   };
 }
 
-export class RedbagRulesRepository {
+export class PointRulesRepository {
   constructor(private db: Database) {}
 
   /**
    * Get all rules
    */
-  getAll(): RedbagRule[] {
+  getAll(): PointRule[] {
     const rows = this.db.prepare(
-      'SELECT * FROM redbag_rules ORDER BY created_at'
-    ).all() as RedbagRuleRow[];
+      'SELECT * FROM point_rules ORDER BY created_at'
+    ).all() as PointRuleRow[];
     
     return rows.map(mapRowToRule);
   }
@@ -49,10 +49,10 @@ export class RedbagRulesRepository {
   /**
    * Get active rule
    */
-  getActive(): RedbagRule | null {
+  getActive(): PointRule | null {
     const row = this.db.prepare(
-      'SELECT * FROM redbag_rules WHERE is_active = 1 LIMIT 1'
-    ).get() as RedbagRuleRow | undefined;
+      'SELECT * FROM point_rules WHERE is_active = 1 LIMIT 1'
+    ).get() as PointRuleRow | undefined;
     
     return row ? mapRowToRule(row) : null;
   }
@@ -60,10 +60,10 @@ export class RedbagRulesRepository {
   /**
    * Get rule by ID
    */
-  getById(id: number): RedbagRule | null {
+  getById(id: number): PointRule | null {
     const row = this.db.prepare(
-      'SELECT * FROM redbag_rules WHERE id = ?'
-    ).get(id) as RedbagRuleRow | undefined;
+      'SELECT * FROM point_rules WHERE id = ?'
+    ).get(id) as PointRuleRow | undefined;
     
     return row ? mapRowToRule(row) : null;
   }
@@ -71,16 +71,16 @@ export class RedbagRulesRepository {
   /**
    * Create a new rule
    */
-  create(input: CreateRedbagRuleInput): RedbagRule {
+  create(input: CreatePointRuleInput): PointRule {
     const result = this.db.prepare(
-      `INSERT INTO redbag_rules 
+      `INSERT INTO point_rules 
        (name, damage_cent_per_point, kill_cent, revive_cent, rounding_mode, is_active, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
     ).run(
       input.name,
-      input.damageCentPerPoint,
-      input.killCent,
-      input.reviveCent,
+      input.damagePointsPerDamage,
+      input.killPoints,
+      input.revivePoints,
       input.roundingMode
     );
 
@@ -94,7 +94,7 @@ export class RedbagRulesRepository {
   /**
    * Update a rule
    */
-  update(input: UpdateRedbagRuleInput): RedbagRule {
+  update(input: UpdatePointRuleInput): PointRule {
     const sets: string[] = [];
     const params: (string | number)[] = [];
 
@@ -102,17 +102,17 @@ export class RedbagRulesRepository {
       sets.push('name = ?');
       params.push(input.name);
     }
-    if (input.damageCentPerPoint !== undefined) {
+    if (input.damagePointsPerDamage !== undefined) {
       sets.push('damage_cent_per_point = ?');
-      params.push(input.damageCentPerPoint);
+      params.push(input.damagePointsPerDamage);
     }
-    if (input.killCent !== undefined) {
+    if (input.killPoints !== undefined) {
       sets.push('kill_cent = ?');
-      params.push(input.killCent);
+      params.push(input.killPoints);
     }
-    if (input.reviveCent !== undefined) {
+    if (input.revivePoints !== undefined) {
       sets.push('revive_cent = ?');
-      params.push(input.reviveCent);
+      params.push(input.revivePoints);
     }
     if (input.roundingMode !== undefined) {
       sets.push('rounding_mode = ?');
@@ -129,7 +129,7 @@ export class RedbagRulesRepository {
     params.push(input.id);
 
     this.db.prepare(
-      `UPDATE redbag_rules SET ${sets.join(', ')} WHERE id = ?`
+      `UPDATE point_rules SET ${sets.join(', ')} WHERE id = ?`
     ).run(...params);
 
     const rule = this.getById(input.id);
@@ -151,27 +151,27 @@ export class RedbagRulesRepository {
 
     // Check if rule has been used in records
     const count = this.db.prepare(
-      'SELECT COUNT(*) as count FROM redbag_records WHERE rule_id = ?'
+      'SELECT COUNT(*) as count FROM point_records WHERE rule_id = ?'
     ).get(id) as { count: number };
     
     if (count.count > 0) {
       throw new Error('Cannot delete rule that has been used');
     }
 
-    this.db.prepare('DELETE FROM redbag_rules WHERE id = ?').run(id);
+    this.db.prepare('DELETE FROM point_rules WHERE id = ?').run(id);
   }
 
   /**
    * Activate a rule (deactivates all others)
    */
-  activate(id: number): RedbagRule {
+  activate(id: number): PointRule {
     const transaction = this.db.transaction(() => {
       // Deactivate all rules
-      this.db.prepare('UPDATE redbag_rules SET is_active = 0, updated_at = CURRENT_TIMESTAMP').run();
+      this.db.prepare('UPDATE point_rules SET is_active = 0, updated_at = CURRENT_TIMESTAMP').run();
       
       // Activate the specified rule
       this.db.prepare(
-        'UPDATE redbag_rules SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        'UPDATE point_rules SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
       ).run(id);
     });
 

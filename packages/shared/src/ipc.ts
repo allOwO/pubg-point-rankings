@@ -10,18 +10,18 @@ import type {
   Teammate,
   Match,
   MatchPlayer,
-  RedbagRule,
-  RedbagRecord,
+  PointRule,
+  PointRecord,
   SyncStatus,
   AppStatus,
-  CalculatedRedbag,
+  CalculatedPoints,
 } from './types';
 import type { OverwolfStatus } from './overwolf';
 import type {
   CreateTeammateInput,
   UpdateTeammateInput,
-  CreateRedbagRuleInput,
-  UpdateRedbagRuleInput,
+  CreatePointRuleInput,
+  UpdatePointRuleInput,
 } from './schemas';
 
 // Channel names
@@ -38,7 +38,7 @@ export const IPC_CHANNELS = {
   TEAMMATES_UPDATE: 'teammates:update',
   TEAMMATES_GET_HISTORY: 'teammates:getHistory',
   
-  // Redbag Rules
+  // Point Rules
   RULES_GET_ALL: 'rules:getAll',
   RULES_GET_ACTIVE: 'rules:getActive',
   RULES_CREATE: 'rules:create',
@@ -51,9 +51,9 @@ export const IPC_CHANNELS = {
   MATCHES_GET_BY_ID: 'matches:getById',
   MATCHES_GET_PLAYERS: 'matches:getPlayers',
   
-  // Redbags
-  REDBAGS_GET_ALL: 'redbags:getAll',
-  REDBAGS_GET_BY_MATCH: 'redbags:getByMatch',
+  // Points
+  POINTS_GET_ALL: 'points:getAll',
+  POINTS_GET_BY_MATCH: 'points:getByMatch',
   
   // Sync
   SYNC_GET_STATUS: 'sync:getStatus',
@@ -91,23 +91,23 @@ export type TeammatesUpdateResponse = Teammate;
 export type TeammatesGetHistoryRequest = { id: number };
 export type TeammatesGetHistoryResponse = {
   teammate: Teammate;
-  records: RedbagRecord[];
+  records: PointRecord[];
   totalMatches: number;
 };
 
 // Rules
 export type RulesGetAllRequest = void;
-export type RulesGetAllResponse = RedbagRule[];
+export type RulesGetAllResponse = PointRule[];
 export type RulesGetActiveRequest = void;
-export type RulesGetActiveResponse = RedbagRule | null;
-export type RulesCreateRequest = CreateRedbagRuleInput;
-export type RulesCreateResponse = RedbagRule;
-export type RulesUpdateRequest = UpdateRedbagRuleInput;
-export type RulesUpdateResponse = RedbagRule;
+export type RulesGetActiveResponse = PointRule | null;
+export type RulesCreateRequest = CreatePointRuleInput;
+export type RulesCreateResponse = PointRule;
+export type RulesUpdateRequest = UpdatePointRuleInput;
+export type RulesUpdateResponse = PointRule;
 export type RulesDeleteRequest = { id: number };
 export type RulesDeleteResponse = void;
 export type RulesActivateRequest = { id: number };
-export type RulesActivateResponse = RedbagRule;
+export type RulesActivateResponse = PointRule;
 
 // Matches
 export type MatchesGetAllRequest = { limit?: number; offset?: number };
@@ -117,11 +117,11 @@ export type MatchesGetByIdResponse = Match | null;
 export type MatchesGetPlayersRequest = { matchId: string };
 export type MatchesGetPlayersResponse = MatchPlayer[];
 
-// Redbags
-export type RedbagsGetAllRequest = { limit?: number; offset?: number };
-export type RedbagsGetAllResponse = RedbagRecord[];
-export type RedbagsGetByMatchRequest = { matchId: string };
-export type RedbagsGetByMatchResponse = RedbagRecord[];
+// Points
+export type PointsGetAllRequest = { limit?: number; offset?: number };
+export type PointsGetAllResponse = PointRecord[];
+export type PointsGetByMatchRequest = { matchId: string };
+export type PointsGetByMatchResponse = PointRecord[];
 
 // Sync
 export type SyncGetStatusRequest = void;
@@ -133,7 +133,7 @@ export type SyncStartMatchResponse = {
   success: boolean; 
   match?: Match; 
   players?: MatchPlayer[];
-  redbags?: CalculatedRedbag[];
+  points?: CalculatedPoints[];
   error?: string;
 };
 
@@ -223,14 +223,14 @@ export interface IpcHandlerMap {
     response: MatchesGetPlayersResponse;
   };
   
-  // Redbags
-  [IPC_CHANNELS.REDBAGS_GET_ALL]: {
-    request: RedbagsGetAllRequest;
-    response: RedbagsGetAllResponse;
+  // Points
+  [IPC_CHANNELS.POINTS_GET_ALL]: {
+    request: PointsGetAllRequest;
+    response: PointsGetAllResponse;
   };
-  [IPC_CHANNELS.REDBAGS_GET_BY_MATCH]: {
-    request: RedbagsGetByMatchRequest;
-    response: RedbagsGetByMatchResponse;
+  [IPC_CHANNELS.POINTS_GET_BY_MATCH]: {
+    request: PointsGetByMatchRequest;
+    response: PointsGetByMatchResponse;
   };
   
   // Sync

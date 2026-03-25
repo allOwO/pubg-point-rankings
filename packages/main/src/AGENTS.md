@@ -12,7 +12,7 @@ src/
 ├── ipc/         # main-process invoke handlers
 ├── parser/      # telemetry parsing + stat aggregation
 ├── pubg/        # official PUBG API client
-├── engine/      # redbag calculation logic
+├── engine/      # point calculation logic
 └── main/        # bootstrap + BrowserWindow lifecycle
 ```
 

@@ -27,8 +27,8 @@ export const TeammateSchema = z.object({
   pubgAccountId: z.string().nullable(),
   pubgPlayerName: z.string(),
   displayNickname: z.string().nullable(),
-  isRedbagEnabled: z.boolean(),
-  totalRedbagCents: z.number().int(),
+  isPointsEnabled: z.boolean(),
+  totalPoints: z.number().int(),
   lastSeenAt: z.date().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -62,35 +62,35 @@ export const MatchPlayerSchema = z.object({
   revives: z.number().int(),
   placement: z.number().int().nullable(),
   isSelf: z.boolean(),
-  isRedbagEnabledSnapshot: z.boolean(),
-  redbagCents: z.number().int(),
+  isPointsEnabledSnapshot: z.boolean(),
+  points: z.number().int(),
   createdAt: z.date(),
 });
 
-export const RedbagRuleSchema = z.object({
+export const PointRuleSchema = z.object({
   id: z.number(),
   name: z.string(),
-  damageCentPerPoint: z.number().int(),
-  killCent: z.number().int(),
-  reviveCent: z.number().int(),
+  damagePointsPerDamage: z.number().int(),
+  killPoints: z.number().int(),
+  revivePoints: z.number().int(),
   isActive: z.boolean(),
   roundingMode: RoundingModeSchema,
   createdAt: z.date(),
   updatedAt: z.date(),
 });
 
-export const RedbagRecordSchema = z.object({
+export const PointRecordSchema = z.object({
   id: z.number(),
   matchId: z.string(),
   matchPlayerId: z.number(),
   teammateId: z.number().nullable(),
   ruleId: z.number(),
   ruleNameSnapshot: z.string(),
-  damageCentPerPointSnapshot: z.number().int(),
-  killCentSnapshot: z.number().int(),
-  reviveCentSnapshot: z.number().int(),
+  damagePointsPerDamageSnapshot: z.number().int(),
+  killPointsSnapshot: z.number().int(),
+  revivePointsSnapshot: z.number().int(),
   roundingModeSnapshot: RoundingModeSchema,
-  amountCents: z.number().int(),
+  points: z.number().int(),
   note: z.string().nullable(),
   createdAt: z.date(),
 });
@@ -105,17 +105,17 @@ export const PlayerStatsSchema = z.object({
   placement: z.number().int().nullable(),
 });
 
-export const CalculatedRedbagSchema = z.object({
+export const CalculatedPointsSchema = z.object({
   pubgAccountId: z.string(),
   pubgPlayerName: z.string(),
   damage: z.number(),
   kills: z.number().int(),
   revives: z.number().int(),
-  damageCents: z.number().int(),
-  killsCents: z.number().int(),
-  revivesCents: z.number().int(),
-  totalCents: z.number().int(),
-  isRedbagEnabled: z.boolean(),
+  damagePoints: z.number().int(),
+  killPoints: z.number().int(),
+  revivePoints: z.number().int(),
+  totalPoints: z.number().int(),
+  isPointsEnabled: z.boolean(),
 });
 
 export const SyncStatusSchema = z.object({
@@ -139,29 +139,29 @@ export const CreateTeammateInputSchema = z.object({
   pubgAccountId: z.string().nullable(),
   pubgPlayerName: z.string().min(1),
   displayNickname: z.string().nullable().optional(),
-  isRedbagEnabled: z.boolean().optional().default(true),
+  isPointsEnabled: z.boolean().optional().default(true),
 });
 
 export const UpdateTeammateInputSchema = z.object({
   id: z.number(),
   displayNickname: z.string().nullable().optional(),
-  isRedbagEnabled: z.boolean().optional(),
+  isPointsEnabled: z.boolean().optional(),
 });
 
-export const CreateRedbagRuleInputSchema = z.object({
+export const CreatePointRuleInputSchema = z.object({
   name: z.string().min(1),
-  damageCentPerPoint: z.number().int().min(0),
-  killCent: z.number().int().min(0),
-  reviveCent: z.number().int().min(0),
+  damagePointsPerDamage: z.number().int().min(0),
+  killPoints: z.number().int().min(0),
+  revivePoints: z.number().int().min(0),
   roundingMode: RoundingModeSchema.default('round'),
 });
 
-export const UpdateRedbagRuleInputSchema = z.object({
+export const UpdatePointRuleInputSchema = z.object({
   id: z.number(),
   name: z.string().min(1).optional(),
-  damageCentPerPoint: z.number().int().min(0).optional(),
-  killCent: z.number().int().min(0).optional(),
-  reviveCent: z.number().int().min(0).optional(),
+  damagePointsPerDamage: z.number().int().min(0).optional(),
+  killPoints: z.number().int().min(0).optional(),
+  revivePoints: z.number().int().min(0).optional(),
   roundingMode: RoundingModeSchema.optional(),
 });
 
@@ -181,7 +181,7 @@ export const UpdateSettingsInputSchema = z.record(z.string());
 // Type exports
 export type CreateTeammateInput = z.infer<typeof CreateTeammateInputSchema>;
 export type UpdateTeammateInput = z.infer<typeof UpdateTeammateInputSchema>;
-export type CreateRedbagRuleInput = z.infer<typeof CreateRedbagRuleInputSchema>;
-export type UpdateRedbagRuleInput = z.infer<typeof UpdateRedbagRuleInputSchema>;
+export type CreatePointRuleInput = z.infer<typeof CreatePointRuleInputSchema>;
+export type UpdatePointRuleInput = z.infer<typeof UpdatePointRuleInputSchema>;
 export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsInputSchema>;

@@ -7,25 +7,25 @@ import type { Database } from 'better-sqlite3';
 import type { 
   Match, 
   MatchPlayer, 
-  CalculatedRedbag, 
+  CalculatedPoints,
   Platform 
 } from '@pubg-point-rankings/shared';
 import { PUBGApiClient } from '../pubg';
 import { parseTelemetry, aggregatePlayerStats } from '../parser';
-import { calculateRedbags } from '../engine';
+import { calculatePoints } from '../engine';
 import { 
   SettingsRepository, 
   TeammatesRepository, 
   MatchesRepository, 
-  RedbagRulesRepository,
-  RedbagRecordsRepository 
+  PointRulesRepository,
+  PointRecordsRepository 
 } from '../repository';
 
 export interface SyncResult {
   success: boolean;
   match?: Match;
   players?: MatchPlayer[];
-  redbags?: CalculatedRedbag[];
+  points?: CalculatedPoints[];
   error?: string;
 }
 
@@ -41,8 +41,8 @@ export class SyncService {
   private settingsRepo: SettingsRepository;
   private teammatesRepo: TeammatesRepository;
   private matchesRepo: MatchesRepository;
-  private rulesRepo: RedbagRulesRepository;
-  private redbagsRepo: RedbagRecordsRepository;
+  private rulesRepo: PointRulesRepository;
+  private pointsRepo: PointRecordsRepository;
   private runtimeStatus: SyncRuntimeStatus = {
     isSyncing: false,
     currentMatchId: null,
@@ -58,8 +58,8 @@ export class SyncService {
     this.settingsRepo = new SettingsRepository(db);
     this.teammatesRepo = new TeammatesRepository(db);
     this.matchesRepo = new MatchesRepository(db);
-    this.rulesRepo = new RedbagRulesRepository(db);
-    this.redbagsRepo = new RedbagRecordsRepository(db);
+    this.rulesRepo = new PointRulesRepository(db);
+    this.pointsRepo = new PointRecordsRepository(db);
   }
 
   /**
@@ -138,7 +138,7 @@ export class SyncService {
       }
 
       // Skip if already synced
-      if (match.status === 'ready' && this.redbagsRepo.existsForMatch(matchId)) {
+      if (match.status === 'ready' && this.pointsRepo.existsForMatch(matchId)) {
         const players = this.matchesRepo.getPlayers(matchId);
         return { success: true, match, players };
       }
@@ -161,7 +161,7 @@ export class SyncService {
       const rule = this.rulesRepo.getActive();
       if (!rule) {
         this.matchesRepo.updateStatus(matchId, 'failed');
-        return { success: false, error: 'No active redbag rule configured' };
+          return { success: false, error: 'No active point rule configured' };
       }
 
       // Find self player name from settings
@@ -186,32 +186,32 @@ export class SyncService {
         // Update teammate last seen
         this.teammatesRepo.updateLastSeen(teammate.id);
 
-        // Add to enabled set if participating in redbag
+        // Add to enabled set if participating in points tracking
         if (teammate.pubgAccountId) {
           teammatesByAccountId.set(teammate.pubgAccountId, teammate);
         }
         teammatesByName.set(teammate.pubgPlayerName.toLowerCase(), teammate);
 
-        if (teammate.isRedbagEnabled || isSelf) {
+        if (teammate.isPointsEnabled || isSelf) {
           enabledPlayerIds.add(stats.pubgAccountId);
         }
       }
 
-      // Calculate redbags
-      const calculatedRedbags = calculateRedbags({
+      // Calculate points
+      const calculatedPoints = calculatePoints({
         rule,
         players: playerStats,
         enabledPlayerIds,
       });
 
-      // Save match players and redbag records atomically.
+      // Save match players and point records atomically.
       const savedPlayers: MatchPlayer[] = [];
       const selfAccountId = playerStats.find(
         p => p.pubgPlayerName.toLowerCase() === selfPlayerName.toLowerCase()
       )?.pubgAccountId;
 
       this.db.transaction(() => {
-        for (const calc of calculatedRedbags) {
+        for (const calc of calculatedPoints) {
           const teammate = (calc.pubgAccountId
             ? teammatesByAccountId.get(calc.pubgAccountId)
             : undefined)
@@ -228,28 +228,28 @@ export class SyncService {
             kills: calc.kills,
             revives: calc.revives,
             isSelf: calc.pubgAccountId === selfAccountId,
-            isRedbagEnabledSnapshot: calc.isRedbagEnabled,
-            redbagCents: calc.totalCents,
+            isPointsEnabledSnapshot: calc.isPointsEnabled,
+            points: calc.totalPoints,
           });
 
           savedPlayers.push(player);
 
-          this.redbagsRepo.create({
+          this.pointsRepo.create({
             matchId,
             matchPlayerId: player.id,
             teammateId: teammate?.id ?? null,
             ruleId: rule.id,
             ruleNameSnapshot: rule.name,
-            damageCentPerPointSnapshot: rule.damageCentPerPoint,
-            killCentSnapshot: rule.killCent,
-            reviveCentSnapshot: rule.reviveCent,
+            damagePointsPerDamageSnapshot: rule.damagePointsPerDamage,
+            killPointsSnapshot: rule.killPoints,
+            revivePointsSnapshot: rule.revivePoints,
             roundingModeSnapshot: rule.roundingMode,
-            amountCents: calc.totalCents,
+            points: calc.totalPoints,
           });
 
           if (teammate) {
-            const totalCents = this.redbagsRepo.getTotalForTeammate(teammate.id);
-            this.teammatesRepo.updateTotalRedbagCents(teammate.id, totalCents);
+            const totalPoints = this.pointsRepo.getTotalForTeammate(teammate.id);
+            this.teammatesRepo.updateTotalPoints(teammate.id, totalPoints);
           }
         }
 
@@ -261,7 +261,7 @@ export class SyncService {
         success: true,
         match,
         players: savedPlayers,
-        redbags: calculatedRedbags,
+        points: calculatedPoints,
       };
     } catch (error) {
       this.matchesRepo.updateStatus(matchId, 'failed');
@@ -311,7 +311,7 @@ export class SyncService {
       const matchId = matchIds[0];
 
       // Check if already synced
-      if (this.matchesRepo.exists(matchId) && this.redbagsRepo.existsForMatch(matchId)) {
+      if (this.matchesRepo.exists(matchId) && this.pointsRepo.existsForMatch(matchId)) {
         const match = this.matchesRepo.getById(matchId)!;
         const players = this.matchesRepo.getPlayers(matchId);
         return { success: true, match, players };

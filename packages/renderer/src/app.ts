@@ -1,16 +1,13 @@
-import type { OverwolfStatus } from '@pubg-point-rankings/shared';
-import type { ElectronAPI } from './preload/types';
+import { getAPI, getRuntimeHost } from './tauri-api';
 
 /**
  * PUBG Point Rankings - Renderer Application
  * Main entry point for the renderer process
  */
 
-// Type definitions for the window API
 declare global {
   interface Window {
-    electronAPI?: ElectronAPI;
-    editTeammate?: (id: number) => Promise<void>;
+    editTeammateNickname?: (id: number) => Promise<void>;
     editRule?: (id: number) => Promise<void>;
     activateRule?: (id: number) => Promise<void>;
     deleteRule?: (id: number) => Promise<void>;
@@ -25,8 +22,8 @@ interface Teammate {
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
-  isRedbagEnabled: boolean;
-  totalRedbagCents: number;
+  isPointsEnabled: boolean;
+  totalPoints: number;
   lastSeenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -60,35 +57,35 @@ interface MatchPlayer {
   revives: number;
   placement: number | null;
   isSelf: boolean;
-  isRedbagEnabledSnapshot: boolean;
-  redbagCents: number;
+  isPointsEnabledSnapshot: boolean;
+  points: number;
   createdAt: Date;
 }
 
-interface RedbagRule {
+interface PointRule {
   id: number;
   name: string;
-  damageCentPerPoint: number;
-  killCent: number;
-  reviveCent: number;
+  damagePointsPerDamage: number;
+  killPoints: number;
+  revivePoints: number;
   isActive: boolean;
   roundingMode: 'floor' | 'round' | 'ceil';
   createdAt: Date;
   updatedAt: Date;
 }
 
-interface RedbagRecord {
+interface PointRecord {
   id: number;
   matchId: string;
   matchPlayerId: number;
   teammateId: number | null;
   ruleId: number;
   ruleNameSnapshot: string;
-  damageCentPerPointSnapshot: number;
-  killCentSnapshot: number;
-  reviveCentSnapshot: number;
+  damagePointsPerDamageSnapshot: number;
+  killPointsSnapshot: number;
+  revivePointsSnapshot: number;
   roundingModeSnapshot: 'floor' | 'round' | 'ceil';
-  amountCents: number;
+  points: number;
   note: string | null;
   createdAt: Date;
 }
@@ -107,52 +104,93 @@ interface AppStatus {
   syncStatus: SyncStatus;
 }
 
-interface CalculatedRedbag {
+interface GameProcessStatus {
+  state: 'not_running' | 'running' | 'cooldown_polling';
+  lastSeenRunningAtMs: number | null;
+  cooldownStartedAtMs: number | null;
+  lastProcessCheckAtMs: number | null;
+  lastRecentMatchCheckAtMs: number | null;
+}
+
+interface CalculatedPoints {
   pubgAccountId: string;
   pubgPlayerName: string;
   damage: number;
   kills: number;
   revives: number;
-  damageCents: number;
-  killsCents: number;
-  revivesCents: number;
-  totalCents: number;
-  isRedbagEnabled: boolean;
+  damagePoints: number;
+  killPoints: number;
+  revivePoints: number;
+  totalPoints: number;
+  isPointsEnabled: boolean;
 }
+
+interface PollingSettings {
+  autoRecentMatchEnabled: boolean;
+  runningProcessCheckIntervalSeconds: number;
+  notRunningProcessCheckIntervalSeconds: number;
+  runningRecentMatchIntervalSeconds: number;
+  cooldownPollingIntervalSeconds: number;
+  cooldownWindowMinutes: number;
+  recentMatchRetryDelaySeconds: number;
+  recentMatchRetryLimit: number;
+}
+
+const POLLING_SETTING_KEYS = {
+  autoRecentMatchEnabled: 'auto_recent_match_enabled',
+  runningProcessCheckIntervalSeconds: 'running_process_check_interval_seconds',
+  notRunningProcessCheckIntervalSeconds: 'not_running_process_check_interval_seconds',
+  runningRecentMatchIntervalSeconds: 'running_recent_match_interval_seconds',
+  cooldownPollingIntervalSeconds: 'cooldown_polling_interval_seconds',
+  cooldownWindowMinutes: 'cooldown_window_minutes',
+  recentMatchRetryDelaySeconds: 'recent_match_retry_delay_seconds',
+  recentMatchRetryLimit: 'recent_match_retry_limit',
+} as const;
+
+const DEFAULT_POLLING_SETTINGS: PollingSettings = {
+  autoRecentMatchEnabled: true,
+  runningProcessCheckIntervalSeconds: 5,
+  notRunningProcessCheckIntervalSeconds: 30,
+  runningRecentMatchIntervalSeconds: 30,
+  cooldownPollingIntervalSeconds: 120,
+  cooldownWindowMinutes: 40,
+  recentMatchRetryDelaySeconds: 15,
+  recentMatchRetryLimit: 2,
+};
 
 interface CreateTeammateInput {
   platform: 'steam' | 'xbox' | 'psn' | 'kakao';
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
-  isRedbagEnabled?: boolean;
+  isPointsEnabled?: boolean;
 }
 
 interface UpdateTeammateInput {
   id: number;
   displayNickname?: string | null;
-  isRedbagEnabled?: boolean;
+  isPointsEnabled?: boolean;
 }
 
-interface CreateRedbagRuleInput {
+interface CreatePointRuleInput {
   name: string;
-  damageCentPerPoint: number;
-  killCent: number;
-  reviveCent: number;
+  damagePointsPerDamage: number;
+  killPoints: number;
+  revivePoints: number;
   roundingMode?: 'floor' | 'round' | 'ceil';
 }
 
-interface UpdateRedbagRuleInput {
+interface UpdatePointRuleInput {
   id: number;
   name?: string;
-  damageCentPerPoint?: number;
-  killCent?: number;
-  reviveCent?: number;
+  damagePointsPerDamage?: number;
+  killPoints?: number;
+  revivePoints?: number;
   roundingMode?: 'floor' | 'round' | 'ceil';
 }
 
 type PlatformValue = CreateTeammateInput['platform'];
-type RoundingValue = NonNullable<CreateRedbagRuleInput['roundingMode']>;
+type RoundingValue = NonNullable<CreatePointRuleInput['roundingMode']>;
 
 function isPlatformValue(value: string): value is PlatformValue {
   return ['steam', 'xbox', 'psn', 'kakao'].includes(value);
@@ -162,28 +200,108 @@ function isRoundingValue(value: string): value is RoundingValue {
   return ['floor', 'round', 'ceil'].includes(value);
 }
 
+function getFriendIdentifier(teammate: Teammate): string {
+  return teammate.pubgAccountId || teammate.pubgPlayerName;
+}
+
+function updateTeammateModalMode(mode: 'create' | 'nickname', teammate?: Teammate) {
+  const titleEl = document.getElementById('teammate-modal-title');
+  const nameInput = document.getElementById('teammate-name') as HTMLInputElement | null;
+  const platformSelect = document.getElementById('teammate-platform') as HTMLSelectElement | null;
+  const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement | null;
+  const enabledGroup = document.getElementById('teammate-enabled-group');
+  const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement | null;
+
+  if (mode === 'create') {
+    if (titleEl) titleEl.textContent = '添加好友';
+    if (nameInput) {
+      nameInput.disabled = false;
+      nameInput.value = '';
+    }
+    if (platformSelect) {
+      platformSelect.disabled = false;
+      platformSelect.value = 'steam';
+    }
+    if (nicknameInput) nicknameInput.value = '';
+    if (enabledInput) enabledInput.checked = true;
+    enabledGroup?.classList.remove('hidden');
+    return;
+  }
+
+  if (!teammate) return;
+
+  if (titleEl) {
+    titleEl.textContent = teammate.displayNickname ? '修改昵称' : '添加昵称';
+  }
+  if (nameInput) {
+    nameInput.disabled = true;
+    nameInput.value = getFriendIdentifier(teammate);
+  }
+  if (platformSelect) {
+    platformSelect.disabled = true;
+    platformSelect.value = teammate.platform;
+  }
+  if (nicknameInput) nicknameInput.value = teammate.displayNickname || '';
+  if (enabledInput) enabledInput.checked = teammate.isPointsEnabled;
+  enabledGroup?.classList.add('hidden');
+}
+
+function openCreateTeammateModal() {
+  const form = document.getElementById('teammate-form') as HTMLFormElement | null;
+  const idInput = document.getElementById('teammate-id') as HTMLInputElement | null;
+
+  form?.reset();
+  if (idInput) idInput.value = '';
+  updateTeammateModalMode('create');
+  openModal('modal-teammate');
+}
+
+async function handleManualTeammateSync() {
+  const syncButton = document.getElementById('btn-new-teammate') as HTMLButtonElement | null;
+  const dashboardSyncButton = document.getElementById('btn-add-teammate') as HTMLButtonElement | null;
+
+  if (state.syncStatus?.isSyncing) return;
+
+  try {
+    if (syncButton) syncButton.disabled = true;
+    if (dashboardSyncButton) dashboardSyncButton.disabled = true;
+
+    const api = getAPI();
+    const result = await api.sync.start();
+
+    if (!result.success) {
+      showToast(result.error || '手动同步好友失败', 'error');
+      return;
+    }
+
+    showToast('好友列表同步完成');
+    await Promise.all([loadDashboard(), loadTeammates(), loadMatches(), loadPointRecords()]);
+  } catch (error) {
+    console.error('Failed to sync teammates manually:', error);
+    showToast('手动同步好友失败', 'error');
+  } finally {
+    await loadAppStatus();
+    if (syncButton) syncButton.disabled = false;
+    if (dashboardSyncButton) dashboardSyncButton.disabled = false;
+    setSyncNowButtonState();
+  }
+}
+
 // State management
 export class AppState {
   teammates: Teammate[] = [];
-  rules: RedbagRule[] = [];
-  activeRule: RedbagRule | null = null;
+  rules: PointRule[] = [];
+  activeRule: PointRule | null = null;
   matches: Match[] = [];
-  redbags: RedbagRecord[] = [];
+  pointRecords: PointRecord[] = [];
   syncStatus: SyncStatus | null = null;
   appStatus: AppStatus | null = null;
-  overwolfStatus: OverwolfStatus | null = null;
+  gameProcessStatus: GameProcessStatus | null = null;
+  pollingSettings: PollingSettings = { ...DEFAULT_POLLING_SETTINGS };
   isLoading = false;
 }
 
 export const state = new AppState();
-
-// API helper
-export function getAPI() {
-  if (!window.electronAPI) {
-    throw new Error('electronAPI is not available');
-  }
-  return window.electronAPI;
-}
 
 // Utility functions
 function formatPoints(points: number): string {
@@ -213,6 +331,32 @@ function formatDateTime(date: Date | string | null): string {
 
 function truncateMatchId(matchId: string): string {
   return matchId.slice(0, 8) + '...';
+}
+
+function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseNumberSetting(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function setSyncNowButtonState() {
+  const syncNowButton = document.getElementById('btn-sync-now') as HTMLButtonElement | null;
+  const label = document.getElementById('btn-sync-now-label');
+  if (!syncNowButton) return;
+
+  const isSyncing = state.syncStatus?.isSyncing ?? false;
+  syncNowButton.disabled = isSyncing;
+  if (label) {
+    label.textContent = isSyncing ? 'Syncing Latest Match...' : 'Sync Now';
+  }
 }
 
 // Toast notifications
@@ -273,12 +417,14 @@ function openModal(modalId: string) {
 function closeAllModals() {
   const overlay = document.getElementById('modal-overlay');
   const modals = document.querySelectorAll('.modal');
+  const teammateIdInput = document.getElementById('teammate-id') as HTMLInputElement | null;
   if (overlay) {
     overlay.classList.add('hidden');
   }
   modals.forEach(modal => {
     modal.classList.add('hidden');
   });
+  if (teammateIdInput) teammateIdInput.value = '';
 }
 
 // Navigation
@@ -314,8 +460,8 @@ export function navigateTo(viewId: string) {
     case 'matches':
       loadMatches();
       break;
-    case 'redbags':
-      loadRedbags();
+    case 'points':
+      loadPointRecords();
       break;
   }
 }
@@ -324,8 +470,12 @@ export function navigateTo(viewId: string) {
 async function loadAppStatus() {
   try {
     const api = getAPI();
-    state.appStatus = await api.app.getStatus();
-    state.overwolfStatus = await api.overwolf.getStatus();
+    const [appStatus, gameProcessStatus] = await Promise.all([
+      api.app.getStatus(),
+      api.app.getGameProcessStatus(),
+    ]);
+    state.appStatus = appStatus;
+    state.gameProcessStatus = gameProcessStatus;
     state.syncStatus = state.appStatus.syncStatus;
     updateSyncIndicator();
   } catch (error) {
@@ -338,13 +488,18 @@ async function loadDashboard() {
     const api = getAPI();
     
     // Load status
-    state.appStatus = await api.app.getStatus();
-    state.overwolfStatus = await api.overwolf.getStatus();
+    const [appStatus, gameProcessStatus] = await Promise.all([
+      api.app.getStatus(),
+      api.app.getGameProcessStatus(),
+    ]);
+    state.appStatus = appStatus;
+    state.gameProcessStatus = gameProcessStatus;
     state.syncStatus = state.appStatus.syncStatus;
     
     // Update UI
     updateDashboardStatus();
     updateSyncIndicator();
+    await loadPollingSettings();
     
     // Load recent matches
     const matches = await api.matches.getAll(5, 0);
@@ -361,11 +516,11 @@ async function loadDashboard() {
     state.activeRule = activeRule;
     updateActiveRule();
     
-    // Load total redbags
-    const redbags = await api.redbags.getAll(1, 0);
-    const totalRedbagsEl = document.getElementById('total-redbags');
-    if (totalRedbagsEl) {
-      totalRedbagsEl.textContent = redbags.length.toString();
+    // Load total point records
+    const pointRecords = await api.points.getAll(1, 0);
+    const totalPointsEl = document.getElementById('total-points');
+    if (totalPointsEl) {
+      totalPointsEl.textContent = pointRecords.length.toString();
     }
   } catch (error) {
     console.error('Failed to load dashboard:', error);
@@ -373,12 +528,81 @@ async function loadDashboard() {
   }
 }
 
+async function loadPollingSettings() {
+  try {
+    const api = getAPI();
+    const settings = await api.settings.getAll();
+    const values = new Map(settings.map(setting => [setting.key, setting.value]));
+
+    const pollingSettings: PollingSettings = {
+      autoRecentMatchEnabled: parseBooleanSetting(
+        values.get(POLLING_SETTING_KEYS.autoRecentMatchEnabled),
+        DEFAULT_POLLING_SETTINGS.autoRecentMatchEnabled,
+      ),
+      runningProcessCheckIntervalSeconds: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.runningProcessCheckIntervalSeconds),
+        DEFAULT_POLLING_SETTINGS.runningProcessCheckIntervalSeconds,
+      ),
+      notRunningProcessCheckIntervalSeconds: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.notRunningProcessCheckIntervalSeconds),
+        DEFAULT_POLLING_SETTINGS.notRunningProcessCheckIntervalSeconds,
+      ),
+      runningRecentMatchIntervalSeconds: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.runningRecentMatchIntervalSeconds),
+        DEFAULT_POLLING_SETTINGS.runningRecentMatchIntervalSeconds,
+      ),
+      cooldownPollingIntervalSeconds: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.cooldownPollingIntervalSeconds),
+        DEFAULT_POLLING_SETTINGS.cooldownPollingIntervalSeconds,
+      ),
+      cooldownWindowMinutes: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.cooldownWindowMinutes),
+        DEFAULT_POLLING_SETTINGS.cooldownWindowMinutes,
+      ),
+      recentMatchRetryDelaySeconds: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.recentMatchRetryDelaySeconds),
+        DEFAULT_POLLING_SETTINGS.recentMatchRetryDelaySeconds,
+      ),
+      recentMatchRetryLimit: parseNumberSetting(
+        values.get(POLLING_SETTING_KEYS.recentMatchRetryLimit),
+        DEFAULT_POLLING_SETTINGS.recentMatchRetryLimit,
+      ),
+    };
+
+    state.pollingSettings = pollingSettings;
+    applyPollingSettingsToForm();
+  } catch (error) {
+    console.error('Failed to load polling settings:', error);
+  }
+}
+
+function applyPollingSettingsToForm() {
+  const autoEnabled = document.getElementById('setting-auto-recent-match-enabled') as HTMLInputElement | null;
+  const runningProcessCheck = document.getElementById('setting-running-process-check-interval-seconds') as HTMLInputElement | null;
+  const notRunningProcessCheck = document.getElementById('setting-not-running-process-check-interval-seconds') as HTMLInputElement | null;
+  const runningRecentMatch = document.getElementById('setting-running-recent-match-interval-seconds') as HTMLInputElement | null;
+  const cooldownPolling = document.getElementById('setting-cooldown-polling-interval-seconds') as HTMLInputElement | null;
+  const cooldownWindow = document.getElementById('setting-cooldown-window-minutes') as HTMLInputElement | null;
+  const retryDelay = document.getElementById('setting-recent-match-retry-delay-seconds') as HTMLInputElement | null;
+  const retryLimit = document.getElementById('setting-recent-match-retry-limit') as HTMLInputElement | null;
+
+  if (autoEnabled) autoEnabled.checked = state.pollingSettings.autoRecentMatchEnabled;
+  if (runningProcessCheck) runningProcessCheck.value = state.pollingSettings.runningProcessCheckIntervalSeconds.toString();
+  if (notRunningProcessCheck) notRunningProcessCheck.value = state.pollingSettings.notRunningProcessCheckIntervalSeconds.toString();
+  if (runningRecentMatch) runningRecentMatch.value = state.pollingSettings.runningRecentMatchIntervalSeconds.toString();
+  if (cooldownPolling) cooldownPolling.value = state.pollingSettings.cooldownPollingIntervalSeconds.toString();
+  if (cooldownWindow) cooldownWindow.value = state.pollingSettings.cooldownWindowMinutes.toString();
+  if (retryDelay) retryDelay.value = state.pollingSettings.recentMatchRetryDelaySeconds.toString();
+  if (retryLimit) retryLimit.value = state.pollingSettings.recentMatchRetryLimit.toString();
+}
+
 function updateDashboardStatus() {
   if (!state.appStatus) return;
   
   const dbStatus = document.getElementById('db-status');
-  const overwolfStatus = document.getElementById('overwolf-status');
-  const pubgStatus = document.getElementById('pubg-status');
+  const runtimeStatus = document.getElementById('runtime-status');
+  const gameProcessStatus = document.getElementById('game-process-status');
+  const currentMatchStatus = document.getElementById('current-match-status');
   const lastSync = document.getElementById('last-sync');
   const systemBadge = document.getElementById('system-status-badge');
   
@@ -391,20 +615,34 @@ function updateDashboardStatus() {
     lastSync.textContent = formatDateTime(state.syncStatus?.lastSyncAt ?? null);
   }
 
-  if (overwolfStatus) {
-    const isReady = Boolean(state.overwolfStatus?.isRunning && state.overwolfStatus?.isGEPAvailable);
-    overwolfStatus.textContent = isReady ? 'Connected' : 'Unavailable';
-    overwolfStatus.className = 'status-value ' + (isReady ? 'text-success' : 'text-warning');
+  if (runtimeStatus) {
+    runtimeStatus.textContent = getRuntimeHost() === 'tauri' ? 'Tauri 2' : 'Electron';
+    runtimeStatus.className = 'status-value text-success';
   }
 
-  if (pubgStatus) {
-    const isPubgRunning = Boolean(state.overwolfStatus?.isPUBGRunning);
-    pubgStatus.textContent = isPubgRunning ? 'Detected' : 'Idle';
-    pubgStatus.className = 'status-value ' + (isPubgRunning ? 'text-success' : 'text-muted');
+  if (gameProcessStatus) {
+    const processState = state.gameProcessStatus?.state ?? 'not_running';
+
+    if (processState === 'running') {
+      gameProcessStatus.textContent = 'Running';
+      gameProcessStatus.className = 'status-value text-success';
+    } else if (processState === 'cooldown_polling') {
+      gameProcessStatus.textContent = 'Cooldown Polling';
+      gameProcessStatus.className = 'status-value text-warning';
+    } else {
+      gameProcessStatus.textContent = 'Not Running';
+      gameProcessStatus.className = 'status-value text-muted';
+    }
+  }
+
+  if (currentMatchStatus) {
+    const currentMatchId = state.syncStatus?.currentMatchId;
+    currentMatchStatus.textContent = currentMatchId ? truncateMatchId(currentMatchId) : 'Idle';
+    currentMatchStatus.className = 'status-value ' + (currentMatchId ? 'text-success' : 'text-muted');
   }
 
   if (systemBadge) {
-    if (state.appStatus.isDatabaseReady && !state.syncStatus?.error && !state.overwolfStatus?.lastError) {
+    if (state.appStatus.isDatabaseReady && !state.syncStatus?.error) {
       systemBadge.textContent = 'Ready';
       systemBadge.className = 'badge badge-success';
     } else if (state.appStatus.isDatabaseReady) {
@@ -441,6 +679,8 @@ function updateSyncIndicator() {
     dot?.classList.remove('syncing', 'error');
     if (text) text.textContent = 'Ready';
   }
+
+  setSyncNowButtonState();
 }
 
 function updateActiveRule() {
@@ -484,8 +724,8 @@ function renderTopTeammates() {
   if (!emptyEl || !listEl) return;
   
   const enabledTeammates = state.teammates
-    .filter(t => t.isRedbagEnabled)
-    .sort((a, b) => b.totalRedbagCents - a.totalRedbagCents)
+    .filter(t => t.isPointsEnabled)
+    .sort((a, b) => b.totalPoints - a.totalPoints)
     .slice(0, 4);
   
   if (enabledTeammates.length === 0) {
@@ -498,12 +738,12 @@ function renderTopTeammates() {
   listEl.classList.remove('hidden');
   
   listEl.innerHTML = enabledTeammates.map(teammate => `
-    <div class="teammate-card ${teammate.isRedbagEnabled ? 'enabled' : 'disabled'}">
+    <div class="teammate-card ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
       <div class="card-title">${teammate.displayNickname || teammate.pubgPlayerName}</div>
       <div class="card-subtitle">${teammate.pubgPlayerName}</div>
       <div class="card-stats">
         <div class="card-stat">
-          <div class="card-stat-value">${formatPoints(teammate.totalRedbagCents)}</div>
+          <div class="card-stat-value">${formatPoints(teammate.totalPoints)}</div>
           <div class="card-stat-label">Total</div>
         </div>
       </div>
@@ -540,24 +780,17 @@ function renderTeammatesList() {
   listEl.classList.remove('hidden');
   
   listEl.innerHTML = state.teammates.map(teammate => `
-    <div class="teammate-card ${teammate.isRedbagEnabled ? 'enabled' : 'disabled'}">
-      <div class="card-title">${teammate.displayNickname || teammate.pubgPlayerName}</div>
-      <div class="card-subtitle">
-        <span class="platform-badge">${teammate.platform}</span>
-        ${teammate.pubgPlayerName}
+    <div class="friend-row ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
+      <div class="friend-row-main">
+        <div class="friend-row-label">${teammate.pubgAccountId ? '用户 ID' : '用户标识'}</div>
+        <div class="friend-row-value">${getFriendIdentifier(teammate)}</div>
       </div>
-      <div class="card-stats">
-        <div class="card-stat">
-          <div class="card-stat-value">${formatPoints(teammate.totalRedbagCents)}</div>
-          <div class="card-stat-label">Total Points</div>
-        </div>
-        <div class="card-stat">
-          <div class="card-stat-value">${teammate.lastSeenAt ? formatDate(teammate.lastSeenAt) : 'Never'}</div>
-          <div class="card-stat-label">Last Seen</div>
-        </div>
+      <div class="friend-row-main">
+        <div class="friend-row-label">保存昵称</div>
+        <div class="friend-row-value ${teammate.displayNickname ? '' : 'muted'}">${teammate.displayNickname || '未设置'}</div>
       </div>
-      <div class="card-actions">
-        <button class="btn btn-secondary" onclick="editTeammate(${teammate.id})">Edit</button>
+      <div class="card-actions friend-row-actions">
+        <button class="btn btn-secondary" onclick="editTeammateNickname(${teammate.id})">${teammate.displayNickname ? '修改昵称' : '添加昵称'}</button>
       </div>
     </div>
   `).join('');
@@ -601,15 +834,15 @@ function renderRulesList() {
       ${rule.isActive ? '<span class="badge badge-success">Active</span>' : ''}
       <div class="card-stats">
         <div class="card-stat">
-          <div class="card-stat-value">${rule.damageCentPerPoint}</div>
+          <div class="card-stat-value">${rule.damagePointsPerDamage}</div>
           <div class="card-stat-label">pts/DMG</div>
         </div>
         <div class="card-stat">
-          <div class="card-stat-value">${rule.killCent}</div>
+          <div class="card-stat-value">${rule.killPoints}</div>
           <div class="card-stat-label">pts/Kill</div>
         </div>
         <div class="card-stat">
-          <div class="card-stat-value">${rule.reviveCent}</div>
+          <div class="card-stat-value">${rule.revivePoints}</div>
           <div class="card-stat-label">pts/Revive</div>
         </div>
       </div>
@@ -665,28 +898,28 @@ function renderMatchesList() {
   `).join('');
 }
 
-// Redbags view
-async function loadRedbags() {
+// Point records view
+async function loadPointRecords() {
   try {
     const api = getAPI();
-    const redbags = await api.redbags.getAll(50, 0);
-    state.redbags = redbags;
-    renderRedbagsList();
+    const pointRecords = await api.points.getAll(50, 0);
+    state.pointRecords = pointRecords;
+    renderPointRecordsList();
   } catch (error) {
-    console.error('Failed to load redbags:', error);
+    console.error('Failed to load point records:', error);
     showToast('Failed to load point history', 'error');
   }
 }
 
-function renderRedbagsList() {
-  const emptyEl = document.getElementById('redbags-empty');
-  const containerEl = document.getElementById('redbags-container');
-  const listEl = document.getElementById('redbags-list');
-  const statsEl = document.getElementById('redbags-stats');
+function renderPointRecordsList() {
+  const emptyEl = document.getElementById('points-empty');
+  const containerEl = document.getElementById('points-container');
+  const listEl = document.getElementById('points-list');
+  const statsEl = document.getElementById('points-stats');
   
   if (!emptyEl || !containerEl || !listEl) return;
   
-  if (state.redbags.length === 0) {
+  if (state.pointRecords.length === 0) {
     emptyEl.classList.remove('hidden');
     containerEl.classList.add('hidden');
     return;
@@ -696,12 +929,12 @@ function renderRedbagsList() {
   containerEl.classList.remove('hidden');
   
   // Calculate stats
-  const totalAmount = state.redbags.reduce((sum, r) => sum + r.amountCents, 0);
+  const totalAmount = state.pointRecords.reduce((sum, record) => sum + record.points, 0);
   
   if (statsEl) {
     statsEl.innerHTML = `
       <div class="stat-item">
-        <div class="stat-value">${state.redbags.length}</div>
+        <div class="stat-value">${state.pointRecords.length}</div>
         <div class="stat-label">Total Records</div>
       </div>
       <div class="stat-item">
@@ -711,13 +944,13 @@ function renderRedbagsList() {
     `;
   }
   
-  listEl.innerHTML = state.redbags.map(redbag => `
+  listEl.innerHTML = state.pointRecords.map(pointRecord => `
     <tr>
-      <td>${truncateMatchId(redbag.matchId)}</td>
-      <td>${truncateMatchId(redbag.matchId)}</td>
-      <td>${redbag.ruleNameSnapshot}</td>
-      <td class="text-success">${formatPoints(redbag.amountCents)}</td>
-      <td>${formatDateTime(redbag.createdAt)}</td>
+      <td>${truncateMatchId(pointRecord.matchId)}</td>
+      <td>${truncateMatchId(pointRecord.matchId)}</td>
+      <td>${pointRecord.ruleNameSnapshot}</td>
+      <td class="text-success">${formatPoints(pointRecord.points)}</td>
+      <td>${formatDateTime(pointRecord.createdAt)}</td>
     </tr>
   `).join('');
 }
@@ -732,6 +965,7 @@ async function handleTeammateSubmit(e: Event) {
   const platformInput = document.getElementById('teammate-platform') as HTMLSelectElement;
   const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement;
   const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement;
+  const isFirstTeammate = state.teammates.length === 0 && !idInput.value;
   
   try {
     const api = getAPI();
@@ -741,9 +975,9 @@ async function handleTeammateSubmit(e: Event) {
       await api.teammates.update({
         id: parseInt(idInput.value),
         displayNickname: nicknameInput.value || null,
-        isRedbagEnabled: enabledInput.checked,
+        isPointsEnabled: enabledInput.checked,
       });
-      showToast('Teammate updated successfully');
+      showToast('昵称保存成功');
     } else {
       // Create new
       if (!isPlatformValue(platformInput.value)) {
@@ -755,18 +989,31 @@ async function handleTeammateSubmit(e: Event) {
         pubgAccountId: null,
         pubgPlayerName: nameInput.value,
         displayNickname: nicknameInput.value || null,
-        isRedbagEnabled: enabledInput.checked,
+        isPointsEnabled: enabledInput.checked,
       });
-      showToast('Teammate added successfully');
+
+      if (isFirstTeammate) {
+        const syncResult = await api.sync.start();
+        if (!syncResult.success) {
+          showToast(syncResult.error || '首次添加后自动同步失败', 'warning');
+        } else {
+          showToast('好友已添加，并自动同步好友列表');
+        }
+      } else {
+        showToast('好友添加成功');
+      }
     }
     
     closeAllModals();
     form.reset();
-    loadTeammates();
-    loadDashboard();
+    await Promise.all([
+      loadTeammates(),
+      loadDashboard(),
+      ...(isFirstTeammate ? [loadMatches(), loadPointRecords()] : []),
+    ]);
   } catch (error) {
     console.error('Failed to save teammate:', error);
-    showToast('Failed to save teammate', 'error');
+    showToast('保存好友失败', 'error');
   }
 }
 
@@ -790,9 +1037,9 @@ async function handleRuleSubmit(e: Event) {
       await api.rules.update({
         id: parseInt(idInput.value),
         name: nameInput.value,
-        damageCentPerPoint: parseInt(damageInput.value) || 0,
-        killCent: parseInt(killInput.value) || 0,
-        reviveCent: parseInt(reviveInput.value) || 0,
+        damagePointsPerDamage: parseInt(damageInput.value) || 0,
+        killPoints: parseInt(killInput.value) || 0,
+        revivePoints: parseInt(reviveInput.value) || 0,
         roundingMode,
       });
       showToast('Rule updated successfully');
@@ -800,9 +1047,9 @@ async function handleRuleSubmit(e: Event) {
       // Create new
       await api.rules.create({
         name: nameInput.value,
-        damageCentPerPoint: parseInt(damageInput.value) || 0,
-        killCent: parseInt(killInput.value) || 0,
-        reviveCent: parseInt(reviveInput.value) || 0,
+        damagePointsPerDamage: parseInt(damageInput.value) || 0,
+        killPoints: parseInt(killInput.value) || 0,
+        revivePoints: parseInt(reviveInput.value) || 0,
         roundingMode,
       });
       showToast('Rule created successfully');
@@ -841,7 +1088,7 @@ async function handleSyncSubmit(e: Event) {
       closeAllModals();
       (e.target as HTMLFormElement).reset();
       loadMatches();
-      loadRedbags();
+      loadPointRecords();
       loadDashboard();
     } else {
       showToast(result.error || 'Failed to sync match', 'error');
@@ -857,34 +1104,94 @@ async function handleSyncSubmit(e: Event) {
   }
 }
 
+async function handlePollingSettingsSubmit(e: Event) {
+  e.preventDefault();
+
+  const form = e.target as HTMLFormElement;
+  const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+
+  const autoEnabled = document.getElementById('setting-auto-recent-match-enabled') as HTMLInputElement | null;
+  const runningProcessCheck = document.getElementById('setting-running-process-check-interval-seconds') as HTMLInputElement | null;
+  const notRunningProcessCheck = document.getElementById('setting-not-running-process-check-interval-seconds') as HTMLInputElement | null;
+  const runningRecentMatch = document.getElementById('setting-running-recent-match-interval-seconds') as HTMLInputElement | null;
+  const cooldownPolling = document.getElementById('setting-cooldown-polling-interval-seconds') as HTMLInputElement | null;
+  const cooldownWindow = document.getElementById('setting-cooldown-window-minutes') as HTMLInputElement | null;
+  const retryDelay = document.getElementById('setting-recent-match-retry-delay-seconds') as HTMLInputElement | null;
+  const retryLimit = document.getElementById('setting-recent-match-retry-limit') as HTMLInputElement | null;
+
+  if (!autoEnabled || !runningProcessCheck || !notRunningProcessCheck || !runningRecentMatch || !cooldownPolling || !cooldownWindow || !retryDelay || !retryLimit) {
+    showToast('Polling settings form is not available.', 'error');
+    return;
+  }
+
+  try {
+    if (submitBtn) submitBtn.disabled = true;
+
+    const api = getAPI();
+    const entries: Array<[string, string]> = [
+      [POLLING_SETTING_KEYS.autoRecentMatchEnabled, autoEnabled.checked ? '1' : '0'],
+      [POLLING_SETTING_KEYS.runningProcessCheckIntervalSeconds, runningProcessCheck.value],
+      [POLLING_SETTING_KEYS.notRunningProcessCheckIntervalSeconds, notRunningProcessCheck.value],
+      [POLLING_SETTING_KEYS.runningRecentMatchIntervalSeconds, runningRecentMatch.value],
+      [POLLING_SETTING_KEYS.cooldownPollingIntervalSeconds, cooldownPolling.value],
+      [POLLING_SETTING_KEYS.cooldownWindowMinutes, cooldownWindow.value],
+      [POLLING_SETTING_KEYS.recentMatchRetryDelaySeconds, retryDelay.value],
+      [POLLING_SETTING_KEYS.recentMatchRetryLimit, retryLimit.value],
+    ];
+
+    await Promise.all(entries.map(([key, value]) => api.settings.set(key, value)));
+
+    await loadPollingSettings();
+    showToast('Polling settings saved successfully');
+  } catch (error) {
+    console.error('Failed to save polling settings:', error);
+    showToast('Failed to save polling settings', 'error');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function handleImmediateRecentMatchCheck() {
+  const syncNowButton = document.getElementById('btn-sync-now') as HTMLButtonElement | null;
+  if (state.syncStatus?.isSyncing) return;
+
+  try {
+    if (syncNowButton) syncNowButton.disabled = true;
+
+    const api = getAPI();
+    const result = await api.sync.start();
+
+    if (!result.success) {
+      showToast(result.error || 'Failed to check recent match', 'error');
+      return;
+    }
+
+    showToast('Recent match check completed');
+    await Promise.all([loadDashboard(), loadMatches(), loadPointRecords()]);
+  } catch (error) {
+    console.error('Failed to check recent match:', error);
+    showToast('Failed to check recent match', 'error');
+  } finally {
+    await loadAppStatus();
+    setSyncNowButtonState();
+  }
+}
+
 // Global functions for inline handlers
-window.editTeammate = async (id: number) => {
+window.editTeammateNickname = async (id: number) => {
   try {
     const api = getAPI();
     const teammate = await api.teammates.getById(id);
     if (!teammate) return;
     
-    const idInput = document.getElementById('teammate-id') as HTMLInputElement;
-    const nameInput = document.getElementById('teammate-name') as HTMLInputElement;
-    const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement;
-    const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement;
-    const titleEl = document.getElementById('teammate-modal-title');
+    const idInput = document.getElementById('teammate-id') as HTMLInputElement | null;
     
     if (idInput) idInput.value = teammate.id.toString();
-    if (nameInput) {
-      nameInput.value = teammate.pubgPlayerName;
-      nameInput.disabled = true;
-    }
-    const platformSelect = document.getElementById('teammate-platform') as HTMLSelectElement;
-    if (platformSelect) platformSelect.disabled = true;
-    if (nicknameInput) nicknameInput.value = teammate.displayNickname || '';
-    if (enabledInput) enabledInput.checked = teammate.isRedbagEnabled;
-    if (titleEl) titleEl.textContent = 'Edit Teammate';
-    
+    updateTeammateModalMode('nickname', teammate);
     openModal('modal-teammate');
   } catch (error) {
     console.error('Failed to load teammate:', error);
-    showToast('Failed to load teammate', 'error');
+    showToast('加载好友信息失败', 'error');
   }
 };
 
@@ -903,9 +1210,9 @@ window.editRule = async (id: number) => {
     
     if (idInput) idInput.value = rule.id.toString();
     if (nameInput) nameInput.value = rule.name;
-    if (damageInput) damageInput.value = rule.damageCentPerPoint.toString();
-    if (killInput) killInput.value = rule.killCent.toString();
-    if (reviveInput) reviveInput.value = rule.reviveCent.toString();
+    if (damageInput) damageInput.value = rule.damagePointsPerDamage.toString();
+    if (killInput) killInput.value = rule.killPoints.toString();
+    if (reviveInput) reviveInput.value = rule.revivePoints.toString();
     if (roundingInput) roundingInput.value = rule.roundingMode;
     if (titleEl) titleEl.textContent = 'Edit Rule';
     
@@ -997,7 +1304,7 @@ window.viewMatchDetail = async (matchId: string) => {
                   <td>${p.damage.toLocaleString()}</td>
                   <td>${p.kills}</td>
                   <td>${p.revives}</td>
-                  <td class="text-success">${formatPoints(p.redbagCents)}</td>
+                  <td class="text-success">${formatPoints(p.points)}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -1016,23 +1323,8 @@ window.viewMatchDetail = async (matchId: string) => {
 // Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    // Check API availability
-    if (!window.electronAPI) {
-      showErrorScreen('Electron API is not available. Make sure the preload script is loaded correctly.');
-      return;
-    }
-    
     // Initial data load
     await loadAppStatus();
-
-    const unsubscribeOverwolfStatus = window.electronAPI.overwolf.onStatusChange((status) => {
-      state.overwolfStatus = status;
-      updateDashboardStatus();
-    });
-
-    window.addEventListener('beforeunload', () => {
-      unsubscribeOverwolfStatus();
-    });
     
     // Hide loading screen after a brief delay
     setTimeout(() => {
@@ -1063,32 +1355,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Quick action buttons
     document.getElementById('btn-sync-now')?.addEventListener('click', () => {
-      openModal('modal-sync');
+      void handleImmediateRecentMatchCheck();
     });
     
     document.getElementById('btn-add-teammate')?.addEventListener('click', () => {
-      // Reset form
-      const form = document.getElementById('teammate-form') as HTMLFormElement;
-      form?.reset();
-      const idInput = document.getElementById('teammate-id') as HTMLInputElement;
-      const nameInput = document.getElementById('teammate-name') as HTMLInputElement;
-      const platformSelect = document.getElementById('teammate-platform') as HTMLSelectElement;
-      const titleEl = document.getElementById('teammate-modal-title');
-      
-      if (idInput) idInput.value = '';
-      if (nameInput) nameInput.disabled = false;
-      if (platformSelect) platformSelect.disabled = false;
-      if (titleEl) titleEl.textContent = 'Add Teammate';
-      
-      openModal('modal-teammate');
+      void handleManualTeammateSync();
     });
     
     document.getElementById('btn-new-teammate')?.addEventListener('click', () => {
-      document.getElementById('btn-add-teammate')?.click();
+      void handleManualTeammateSync();
     });
     
     document.getElementById('btn-empty-add-teammate')?.addEventListener('click', () => {
-      document.getElementById('btn-add-teammate')?.click();
+      openCreateTeammateModal();
     });
     
     document.getElementById('btn-new-rule')?.addEventListener('click', () => {
@@ -1116,6 +1395,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('teammate-form')?.addEventListener('submit', handleTeammateSubmit);
     document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
     document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
+    document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
     
   } catch (error) {
     console.error('Failed to initialize app:', error);

@@ -12,8 +12,8 @@ interface TeammateRow {
   pubg_account_id: string | null;
   pubg_player_name: string;
   display_nickname: string | null;
-  is_redbag_enabled: number;
-  total_redbag_cents: number;
+  is_points_enabled: number;
+  total_points: number;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
@@ -26,8 +26,8 @@ function mapRowToTeammate(row: TeammateRow): Teammate {
     pubgAccountId: row.pubg_account_id,
     pubgPlayerName: row.pubg_player_name,
     displayNickname: row.display_nickname,
-    isRedbagEnabled: row.is_redbag_enabled === 1,
-    totalRedbagCents: row.total_redbag_cents,
+    isPointsEnabled: row.is_points_enabled === 1,
+    totalPoints: row.total_points,
     lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at) : null,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
@@ -81,15 +81,15 @@ export class TeammatesRepository {
    */
   create(input: CreateTeammateInput): Teammate {
     const result = this.db.prepare(
-      `INSERT INTO teammates 
-       (platform, pubg_account_id, pubg_player_name, display_nickname, is_redbag_enabled, created_at, updated_at)
+       `INSERT INTO teammates 
+       (platform, pubg_account_id, pubg_player_name, display_nickname, is_points_enabled, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`
     ).run(
       input.platform,
       input.pubgAccountId,
       input.pubgPlayerName,
       input.displayNickname ?? null,
-      input.isRedbagEnabled ? 1 : 0
+      input.isPointsEnabled ? 1 : 0
     );
 
     const teammate = this.getById(result.lastInsertRowid as number);
@@ -110,9 +110,9 @@ export class TeammatesRepository {
       sets.push('display_nickname = ?');
       params.push(input.displayNickname);
     }
-    if (input.isRedbagEnabled !== undefined) {
-      sets.push('is_redbag_enabled = ?');
-      params.push(input.isRedbagEnabled ? 1 : 0);
+    if (input.isPointsEnabled !== undefined) {
+      sets.push('is_points_enabled = ?');
+      params.push(input.isPointsEnabled ? 1 : 0);
     }
 
     if (sets.length === 0) {
@@ -136,12 +136,12 @@ export class TeammatesRepository {
   }
 
   /**
-   * Update total redbag cents for a teammate
+   * Update total points for a teammate
    */
-  updateTotalRedbagCents(id: number, cents: number): void {
+  updateTotalPoints(id: number, points: number): void {
     this.db.prepare(
-      'UPDATE teammates SET total_redbag_cents = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    ).run(cents, id);
+      'UPDATE teammates SET total_points = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(points, id);
   }
 
   /**
@@ -168,7 +168,7 @@ export class TeammatesRepository {
         platform,
         pubgAccountId: accountId ?? null,
         pubgPlayerName: playerName,
-        isRedbagEnabled: true,
+        isPointsEnabled: true,
       });
     } else if (accountId && !teammate.pubgAccountId) {
       // Update account ID if we now have it

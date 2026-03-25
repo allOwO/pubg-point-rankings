@@ -35,13 +35,13 @@ function getDatabasePath(): string {
   // Platform-specific paths
   if (process.platform === 'win32') {
     const localAppData = process.env.LOCALAPPDATA || path.join(homeDir, 'AppData', 'Local');
-    return path.join(localAppData, 'pubg-redbag-plugin', 'app.db');
+    return path.join(localAppData, 'pubg-point-rankings', 'app.db');
   } else if (process.platform === 'darwin') {
-    return path.join(homeDir, 'Library', 'Application Support', 'pubg-redbag-plugin', 'app.db');
+    return path.join(homeDir, 'Library', 'Application Support', 'pubg-point-rankings', 'app.db');
   } else {
     // Linux
     const configDir = process.env.XDG_CONFIG_HOME || path.join(homeDir, '.config');
-    return path.join(configDir, 'pubg-redbag-plugin', 'app.db');
+    return path.join(configDir, 'pubg-point-rankings', 'app.db');
   }
 }
 

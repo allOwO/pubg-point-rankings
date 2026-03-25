@@ -11,8 +11,8 @@ import {
   SettingsRepository,
   TeammatesRepository,
   MatchesRepository,
-  RedbagRulesRepository,
-  RedbagRecordsRepository,
+  PointRulesRepository,
+  PointRecordsRepository,
 } from '../repository';
 import { SyncService } from '../services';
 import type { IpcHandlerMap } from '@pubg-point-rankings/shared';
@@ -52,8 +52,8 @@ export function registerIPCHandlers(context: IPCHandlerContext): void {
   const settingsRepo = new SettingsRepository(db);
   const teammatesRepo = new TeammatesRepository(db);
   const matchesRepo = new MatchesRepository(db);
-  const rulesRepo = new RedbagRulesRepository(db);
-  const redbagsRepo = new RedbagRecordsRepository(db);
+  const rulesRepo = new PointRulesRepository(db);
+  const pointsRepo = new PointRecordsRepository(db);
 
   // Settings handlers
   ipcMain.handle(
@@ -118,7 +118,7 @@ export function registerIPCHandlers(context: IPCHandlerContext): void {
       if (!teammate) {
         throw new Error('Teammate not found');
       }
-      const records = redbagsRepo.getByTeammate(request.id);
+      const records = pointsRepo.getByTeammate(request.id);
       const totalMatches = records.length;
       return { teammate, records, totalMatches };
     })
@@ -191,18 +191,18 @@ export function registerIPCHandlers(context: IPCHandlerContext): void {
     })
   );
 
-  // Redbags handlers
+  // Points handlers
   ipcMain.handle(
-    IPC_CHANNELS.REDBAGS_GET_ALL,
-    withIpcErrorHandling(async (_event: IpcMainInvokeEvent, request: IpcHandlerMap[typeof IPC_CHANNELS.REDBAGS_GET_ALL]['request']) => {
-      return redbagsRepo.getAll(request?.limit, request?.offset);
+    IPC_CHANNELS.POINTS_GET_ALL,
+    withIpcErrorHandling(async (_event: IpcMainInvokeEvent, request: IpcHandlerMap[typeof IPC_CHANNELS.POINTS_GET_ALL]['request']) => {
+      return pointsRepo.getAll(request?.limit, request?.offset);
     })
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.REDBAGS_GET_BY_MATCH,
-    withIpcErrorHandling(async (_event: IpcMainInvokeEvent, request: IpcHandlerMap[typeof IPC_CHANNELS.REDBAGS_GET_BY_MATCH]['request']) => {
-      return redbagsRepo.getByMatch(request.matchId);
+    IPC_CHANNELS.POINTS_GET_BY_MATCH,
+    withIpcErrorHandling(async (_event: IpcMainInvokeEvent, request: IpcHandlerMap[typeof IPC_CHANNELS.POINTS_GET_BY_MATCH]['request']) => {
+      return pointsRepo.getByMatch(request.matchId);
     })
   );
 
@@ -243,7 +243,7 @@ export function registerIPCHandlers(context: IPCHandlerContext): void {
         success: result.success,
         match: result.match,
         players: result.players,
-        redbags: result.redbags,
+        points: result.points,
         error: result.error,
       };
     })

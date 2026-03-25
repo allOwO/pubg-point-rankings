@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PUBG Point Rankings",
+  "version": "0.1.0",
+  "identifier": "com.lzx.pubg-point-rankings",
+  "build": {
+    "beforeDevCommand": "npm run tauri:renderer:dev",
+    "beforeBuildCommand": "npm run tauri:renderer:build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../packages/renderer/bundle"
+  },
+  "app": {
+    "security": {
+      "capabilities": ["default"]
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "PUBG Point Rankings",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "icon": []
+  }
+}

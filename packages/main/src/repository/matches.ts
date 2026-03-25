@@ -34,8 +34,8 @@ interface MatchPlayerRow {
   revives: number;
   placement: number | null;
   is_self: number;
-  is_redbag_enabled_snapshot: number;
-  redbag_cents: number;
+  is_points_enabled_snapshot: number;
+  points: number;
   created_at: string;
 }
 
@@ -70,8 +70,8 @@ function mapRowToMatchPlayer(row: MatchPlayerRow): MatchPlayer {
     revives: row.revives,
     placement: row.placement,
     isSelf: row.is_self === 1,
-    isRedbagEnabledSnapshot: row.is_redbag_enabled_snapshot === 1,
-    redbagCents: row.redbag_cents,
+    isPointsEnabledSnapshot: row.is_points_enabled_snapshot === 1,
+    points: row.points,
     createdAt: new Date(row.created_at),
   };
 }
@@ -99,8 +99,8 @@ export interface CreateMatchPlayerInput {
   revives?: number;
   placement?: number | null;
   isSelf?: boolean;
-  isRedbagEnabledSnapshot?: boolean;
-  redbagCents?: number;
+  isPointsEnabledSnapshot?: boolean;
+  points?: number;
 }
 
 export class MatchesRepository {
@@ -257,10 +257,10 @@ export class MatchesRepository {
    */
   createPlayer(input: CreateMatchPlayerInput): MatchPlayer {
     const result = this.db.prepare(
-      `INSERT INTO match_players 
-       (match_id, teammate_id, pubg_account_id, pubg_player_name, display_nickname_snapshot, team_id, 
-        damage, kills, revives, placement, is_self, is_redbag_enabled_snapshot, redbag_cents, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+       `INSERT INTO match_players 
+        (match_id, teammate_id, pubg_account_id, pubg_player_name, display_nickname_snapshot, team_id, 
+         damage, kills, revives, placement, is_self, is_points_enabled_snapshot, points, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
     ).run(
       input.matchId,
       input.teammateId ?? null,
@@ -273,8 +273,8 @@ export class MatchesRepository {
       input.revives ?? 0,
       input.placement ?? null,
       input.isSelf ? 1 : 0,
-      input.isRedbagEnabledSnapshot ?? true ? 1 : 0,
-      input.redbagCents ?? 0
+      input.isPointsEnabledSnapshot ?? true ? 1 : 0,
+      input.points ?? 0
     );
 
     const player = this.getPlayerById(result.lastInsertRowid as number);
@@ -287,7 +287,7 @@ export class MatchesRepository {
   /**
    * Update match player stats
    */
-  updatePlayerStats(playerId: number, stats: Partial<Pick<MatchPlayer, 'damage' | 'kills' | 'revives' | 'placement' | 'redbagCents'>>): void {
+  updatePlayerStats(playerId: number, stats: Partial<Pick<MatchPlayer, 'damage' | 'kills' | 'revives' | 'placement' | 'points'>>): void {
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
 
@@ -307,9 +307,9 @@ export class MatchesRepository {
       sets.push('placement = ?');
       params.push(stats.placement);
     }
-    if (stats.redbagCents !== undefined) {
-      sets.push('redbag_cents = ?');
-      params.push(stats.redbagCents);
+    if (stats.points !== undefined) {
+      sets.push('points = ?');
+      params.push(stats.points);
     }
 
     if (sets.length === 0) return;

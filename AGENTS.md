@@ -1,85 +1,167 @@
-# PROJECT KNOWLEDGE BASE
+# AGENTS.md
 
-**Generated:** 2026-03-24 Asia/Shanghai
-**Branch:** unknown
+## Purpose
+Guidance for coding agents working in this repository.
+This repo is **Tauri-first**: Rust backend in `src-tauri/`, vanilla TS renderer in `packages/renderer/`, shared contracts in `packages/shared/`, and legacy TS reference code in `packages/main/`.
 
-## OVERVIEW
-Overwolf Electron monorepo for local PUBG point rankings. Electron main owns SQLite + PUBG sync + GEP; renderer is a vanilla TS desktop UI; shared package is the contract hub.
+## Rule sources checked
+- `.cursor/rules/`: not present
+- `.cursorrules`: not present
+- `.github/copilot-instructions.md`: not present
+- No Cursor or Copilot repo rules were found when this file was updated.
 
-## STRUCTURE
+## Architecture snapshot
 ```text
-pubg-redbag-plugin/
-├── packages/main/src/      # Electron main, DB, sync, GEP, IPC
-├── packages/renderer/src/  # UI, preload bridge, HTML/CSS shell
-├── packages/shared/src/    # Types, schemas, IPC channels, Overwolf status types
-├── docs/                   # API/setup + product plan
-└── electron-builder.config.js  # packaging rules
+pubg-point-rankings/
+├── src-tauri/            # Active Rust backend + Tauri host
+├── packages/renderer/    # Active frontend (vanilla TS + Vite)
+├── packages/shared/      # Shared TS types + Zod schemas
+├── packages/main/        # Legacy TS backend reference/tests
+├── docs/                 # Product + migration docs
+└── README.md
 ```
 
-## WHERE TO LOOK
-| Task | Location | Notes |
-|------|----------|-------|
-| App bootstrap | `packages/main/src/main/bootstrap.ts` | Wires DB, IPC, GEP, window lifecycle |
-| Packaging/runtime | `package.json`, `electron-builder.config.js` | `ow-electron` + builder config live here |
-| Production bundles | `packages/main/bundle/`, `packages/renderer/bundle/` | Packaging must use bundle outputs, not raw `dist/` |
-| PUBG sync flow | `packages/main/src/services/sync.ts` | End-to-end match ingestion |
-| GEP integration | `packages/main/src/services/overwolf.ts` | Real Overwolf package integration |
-| DB schema/migrations | `packages/main/src/db/` | SQLite bootstrap + schema versioning |
-| UI logic | `packages/renderer/src/app.ts` | Single large renderer state/view module |
-| Preload bridge | `packages/renderer/src/preload/` | Sole renderer ↔ main bridge |
-| Cross-process contract | `packages/shared/src/ipc.ts` | Channel names + request/response shapes |
-| Core domain model | `packages/shared/src/types.ts`, `schemas.ts` | Type + Zod pairing |
+### Active vs legacy
+- `src-tauri/` is the live backend.
+- `packages/renderer/` is the live UI.
+- `packages/shared/` is the shared contract layer.
+- `packages/main/` is migration/reference code; do not treat it as the runtime path unless explicitly porting behavior.
 
-## CONVENTIONS
-- npm workspaces; build order is `shared -> main -> renderer`.
-- Root `npm run build` must stay `tsc -b` + bundle generation; do not revert to ad-hoc per-package build ordering.
-- User-facing scores are integer points. Legacy DB columns still use cent/redbag names internally for compatibility; do not introduce float score state.
-- Renderer must go through preload + IPC. No direct DB/fs/main imports.
-- `shared/src` is authoritative for domain shapes and IPC contracts.
-- Historical rows use snapshot fields to preserve past rule/teammate state.
-- Main package tests live in `packages/main/src/**/*.test.ts`; root test runs compiled tests from `packages/main/dist`.
-- Development uses `packages/*/dist`; production packaging uses `packages/main/bundle` and `packages/renderer/bundle`.
-- Main bundle must externalize native/runtime-sensitive modules such as `electron` and `better-sqlite3`.
-- Renderer production output consists of bundled `app.js`, bundled preload, plus copied `index.html` and `styles.css`.
+## Important locations
+### Tauri backend
+- `src-tauri/src/lib.rs` — bootstrap, state registration, command registration
+- `src-tauri/src/app_state.rs` — global app state
+- `src-tauri/src/commands/` — Tauri command handlers
+- `src-tauri/src/services/` — sync/polling orchestration
+- `src-tauri/src/runtime/` — scheduler + game process state machine
+- `src-tauri/src/platform/` — process detection
+- `src-tauri/src/repository/` — SQLite data access
+- `src-tauri/src/db/` — DB path, schema, migrations
+- `src-tauri/src/pubg/`, `parser/`, `engine/` — API client, telemetry parsing, points logic
 
-## ANTI-PATTERNS (THIS PROJECT)
-- Do not invent IPC channel strings outside `packages/shared/src/ipc.ts`.
-- Do not treat GEP damage/kills as payout truth; final calculation stays telemetry/API-driven.
-- Do not put business logic in renderer or preload.
-- Do not bypass repositories for routine DB access from handlers/services.
-- Do not store mutable historical data without snapshot columns.
-- Do not use memory reading, DLL injection, packet capture, game hooks, or any unsupported runtime inspection to obtain PUBG real-time data.
-- Do not perform any operation that could risk player accounts, trigger anti-cheat, or violate PUBG/KRAFTON/Overwolf policies; use sanctioned APIs/GEP only.
-- Do not point production packaging back at `packages/*/dist/**`; packaged builds must consume bundle outputs to preserve size optimizations.
-- Do not broaden `asarUnpack` back to whole native package directories; keep unpacking as narrow as possible.
-- Do not add Windows `portable` target, UPX compression, custom runtime trimming, or other anti-cheat-sensitive packaging tricks without explicit review.
-- Do not add extra locales/resources/assets to the package unless they are required and size impact is understood.
+### Frontend and shared
+- `packages/renderer/src/app.ts` — main UI/state hotspot
+- `packages/renderer/src/tauri-api.ts` — typed invoke adapter + hydration
+- `packages/renderer/src/index.html` — DOM contract relied on by `app.ts`
+- `packages/shared/src/types.ts` — authoritative domain model
+- `packages/shared/src/schemas.ts` — runtime validation schemas
+- `packages/shared/src/ipc.ts` — legacy IPC contract reference during migration
 
-## UNIQUE STYLES
-- Backend is layered: `db -> repository -> services/engine/parser/pubg -> ipc/main`.
-- GEP status is pushed from main to renderer via `overwolf:statusChanged` event.
-- The renderer is intentionally framework-free; `app.ts` owns state, view routing, forms, and dashboard refresh.
-- `packages/shared/src/overwolf.ts` models Overwolf status even when runtime APIs are absent.
-
-## COMMANDS
+## Build / lint / test commands
+### Root
 ```bash
 npm install
 npm run dev
 npm run build
 npm run typecheck
 npm test
-npm run package:dir
-npm run dist:win
+npm run tauri:build
+npm run package
 ```
 
-## NOTES
-- Windows is the real runtime target for GEP/overlay behavior; macOS validation is build-only.
-- `package:dir` rebuilds native deps (`better-sqlite3`) against `ow-electron`.
-- Package size is dominated by the `ow-electron` runtime, not project code.
-- Current packaging optimizations that must be preserved:
-  - root build uses `tsc -b` before bundling
-  - production entry resolves to `packages/main/bundle/index.js`
-  - packaged renderer paths resolve to `packages/renderer/bundle/**`
-  - `electron-builder.config.js` includes bundle outputs and excludes raw `dist/`, tests, maps, sources, and native build junk
-  - `asarUnpack` is limited to the native `.node` binary path for `better-sqlite3`
-  - Windows distribution is NSIS-only with `compression: 'maximum'`
+### Package-specific
+```bash
+npm run build --workspace @pubg-point-rankings/shared
+npm run build --workspace @pubg-point-rankings/main
+npm run build --workspace @pubg-point-rankings/renderer
+npm run typecheck --workspace @pubg-point-rankings/renderer
+```
+
+### Rust backend
+```bash
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+### Lint status
+- `npm run lint` is a placeholder only.
+- Real verification is `npm run typecheck`, `cargo check`, `cargo test`, and `npm run build`.
+
+## Running a single test
+### Rust
+`cargo test` supports substring filtering:
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml scheduler
+cargo test --manifest-path src-tauri/Cargo.toml parses_and_aggregates_basic_stats
+```
+
+### Legacy Node tests
+Root tests run compiled JS from `packages/main/dist`, so build first:
+```bash
+npm run build --workspace @pubg-point-rankings/main
+node --test "packages/main/dist/path/to/file.test.js"
+node --test "packages/main/dist/engine/calculator.test.js"
+node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
+```
+
+## Expected verification before finishing
+- If Rust changed: run `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`
+- If renderer/shared TS changed: run `npm run typecheck` and `npm run build`
+- If cross-layer behavior changed: run all four
+
+## Code style guidelines
+### General
+- Keep changes minimal and aligned with existing patterns.
+- Prefer extending the current layers over inventing new ones.
+- Preserve the Tauri-first architecture.
+- Do not reintroduce Electron/Overwolf runtime assumptions into active code.
+
+### Imports
+- TypeScript: ES imports, external before workspace imports, use `import type` where appropriate.
+- Rust: group `std` imports first, then crate/external imports.
+- Remove unused imports.
+
+### Formatting
+- TypeScript uses semicolons and single quotes.
+- Keep object literals/DTOs readable and vertically aligned.
+- Rust should follow `rustfmt` defaults and existing `serde` style.
+- Keep Markdown/HTML readable; avoid collapsing structured markup into one-liners.
+
+### Types
+- Prefer explicit types and existing interfaces.
+- Never use `any`, `as any`, `@ts-ignore`, or `@ts-expect-error`.
+- Keep `packages/shared/src/types.ts` and `schemas.ts` aligned.
+- In renderer adapters, hydrate string dates to `Date` centrally rather than scattering conversions.
+
+### Naming
+- TypeScript: `camelCase` for values/functions, `PascalCase` for interfaces/types.
+- Rust: `snake_case` for functions/modules, `PascalCase` for structs/enums.
+- Tauri commands stay `snake_case`; use `rename_all = "camelCase"` only for argument shape needs.
+- DB/app setting keys use lowercase `snake_case` strings.
+
+### Error handling
+- Rust repositories/services should return `Result<_, AppError>`.
+- Tauri commands should convert backend failures into `ErrorPayload`.
+- Renderer async flows should log errors and show a user-visible toast when appropriate.
+- Do not swallow errors and do not use empty catch blocks.
+
+### Data / domain rules
+- Use repositories for routine DB access; avoid raw SQL in commands/UI.
+- Preserve snapshot columns and historical semantics.
+- User-facing points remain **integers**; do not turn scoring state into floats.
+
+### Renderer rules
+- Treat `index.html` IDs/classes as a hard contract with `app.ts`.
+- Keep UI state in the existing `AppState` flow rather than adding ad hoc globals.
+- Renderer should go through `tauri-api.ts`; do not spread direct Tauri calls everywhere.
+- Do not import backend-only modules into renderer.
+
+### Backend rules
+- Keep command handlers thin; business logic belongs in services/runtime/repository layers.
+- Keep process detection ordinary and non-invasive.
+- Never add memory reading, DLL injection, packet capture, hooks, or anything anti-cheat-risky.
+- Scheduler/runtime code must not perform recent-match checks in `not_running`.
+
+## Project-specific anti-patterns
+- Do not invent new cross-layer contracts outside `packages/shared` unless migration requires it.
+- Do not bypass `packages/shared/src/types.ts` for shared shapes.
+- Do not put business logic into renderer DOM handlers.
+- Do not rewire packaging away from current Tauri entrypoints.
+- Do not assume `packages/main` is the live backend.
+
+## Practical notes for agents
+- Read adjacent code before changing pattern-heavy files.
+- `packages/renderer/src/app.ts` is large; prefer helper extraction over adding more branching.
+- When porting logic from `packages/main` to Rust, preserve behavior first and refactor second.
+- If you change a shared type, inspect `schemas.ts`, renderer hydration, and related command DTOs in the same pass.
+- If you change sync or polling behavior, review scheduler state transitions and UI status display together.

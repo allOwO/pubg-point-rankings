@@ -9,9 +9,9 @@ import { bootstrapDatabase } from '../db/migrations.js';
 import {
   SettingsRepository,
   TeammatesRepository,
-  RedbagRulesRepository,
+  PointRulesRepository,
   MatchesRepository,
-  RedbagRecordsRepository,
+  PointRecordsRepository,
 } from './index.js';
 import type { Platform } from '@pubg-point-rankings/shared';
 
@@ -96,12 +96,12 @@ describe('TeammatesRepository', () => {
   });
 });
 
-describe('RedbagRulesRepository', () => {
-  let repo: RedbagRulesRepository;
+describe('PointRulesRepository', () => {
+  let repo: PointRulesRepository;
 
   beforeEach(() => {
     const mockDb = new MockDatabase() as unknown as import('better-sqlite3').Database;
-    repo = new RedbagRulesRepository(mockDb);
+    repo = new PointRulesRepository(mockDb);
   });
 
   test('getAll returns empty array by default', () => {
@@ -184,12 +184,12 @@ describe('MatchesRepository', () => {
   });
 });
 
-describe('RedbagRecordsRepository', () => {
-  let repo: RedbagRecordsRepository;
+describe('PointRecordsRepository', () => {
+  let repo: PointRecordsRepository;
 
   beforeEach(() => {
     const mockDb = new MockDatabase() as unknown as import('better-sqlite3').Database;
-    repo = new RedbagRecordsRepository(mockDb);
+    repo = new PointRecordsRepository(mockDb);
   });
 
   test('getAll returns empty array by default', () => {
