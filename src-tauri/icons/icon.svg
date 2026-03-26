@@ -1,0 +1,12 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark premium background -->
+  <rect width="1024" height="1024" rx="180" fill="#121217" />
+  
+  <!-- Target crosshair (white, thin for legibility) -->
+  <line x1="512" y1="256" x2="512" y2="768" stroke="#ffffff" stroke-width="32" stroke-linecap="round" opacity="0.9" />
+  <line x1="256" y1="512" x2="768" y2="512" stroke="#ffffff" stroke-width="32" stroke-linecap="round" opacity="0.9" />
+  
+  <!-- Center point (gold/amber for score/point indicator) -->
+  <circle cx="512" cy="512" r="64" fill="#fbbf24" />
+  <circle cx="512" cy="512" r="32" fill="#f59e0b" />
+</svg>

@@ -47,6 +47,12 @@ cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+### Tauri packaging / icons
+```bash
+./node_modules/.bin/tauri icon "src-tauri/icons/icon.png" -o "src-tauri/icons"
+./node_modules/.bin/tauri build --bundles app
+```
+
 ### Lint status
 - `npm run lint` is a placeholder only.
 - Real verification is `npm run typecheck`, `cargo check`, `cargo test`, and `npm run build`.
@@ -138,3 +144,5 @@ node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 - When porting logic from `packages/main` to Rust, preserve behavior first and refactor second.
 - If you change a shared type, inspect `schemas.ts`, renderer hydration, and related command DTOs in the same pass.
 - If you change sync or polling behavior, review scheduler state transitions and UI status display together.
+- Tauri app icons are driven by `src-tauri/tauri.conf.json` `bundle.icon`; for macOS the critical asset is `src-tauri/icons/icon.icns`.
+- If the macOS app still shows a generic/default icon after a correct rebuild, suspect local icon cache before changing code/config again; minimally refresh with `killall Dock` and `killall Finder`.
