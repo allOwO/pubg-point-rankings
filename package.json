@@ -4,7 +4,7 @@
   "private": true,
   "description": "PUBG Point Rankings using Tauri",
   "author": "lzx",
-  "license": "MIT",
+  "license": "SUL-1.0",
   "workspaces": [
     "packages/*"
   ],

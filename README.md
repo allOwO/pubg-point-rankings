@@ -49,4 +49,4 @@ Enter your API key in the application's settings screen.
 
 ## License
 
-MIT
+Sustainable Use License v1.0 (`SUL-1.0`). See [LICENSE](./LICENSE).
