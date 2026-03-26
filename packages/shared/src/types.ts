@@ -143,3 +143,73 @@ export interface AppStatus {
   isDatabaseReady: boolean;
   syncStatus: SyncStatus;
 }
+
+export interface PointHistoryPlayerBreakdown {
+  matchPlayerId: number;
+  teammateId: number | null;
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  displayNicknameSnapshot: string | null;
+  isSelf: boolean;
+  isPointsEnabledSnapshot: boolean;
+  damage: number;
+  kills: number;
+  revives: number;
+  damagePointsPerDamageSnapshot: number;
+  killPointsSnapshot: number;
+  revivePointsSnapshot: number;
+  damagePoints: number;
+  killPoints: number;
+  revivePoints: number;
+  totalPoints: number;
+}
+
+export interface PointBattleDelta {
+  matchPlayerId: number;
+  teammateId: number | null;
+  pubgPlayerName: string;
+  displayNicknameSnapshot: string | null;
+  delta: number;
+}
+
+export interface PointHistoryMatchGroup {
+  type: 'match_group';
+  matchId: string;
+  playedAt: Date;
+  mapName: string | null;
+  gameMode: string | null;
+  ruleId: number;
+  ruleNameSnapshot: string;
+  isSettled: boolean;
+  settledAt: Date | null;
+  settlementBatchId: number | null;
+  note: string | null;
+  players: PointHistoryPlayerBreakdown[];
+  battleDeltas: PointBattleDelta[];
+}
+
+export interface PointHistoryRuleChangeMarker {
+  type: 'rule_change_marker';
+  previousRuleName: string;
+  nextRuleName: string;
+  createdAt: Date;
+}
+
+export type PointHistoryListItem =
+  | PointHistoryMatchGroup
+  | PointHistoryRuleChangeMarker;
+
+export interface UnsettledPlayerSummary {
+  teammateId: number | null;
+  pubgPlayerName: string;
+  displayNickname: string | null;
+  isSelf: boolean;
+  totalDelta: number;
+}
+
+export interface UnsettledBattleSummary {
+  activeRuleName: string | null;
+  unsettledMatchCount: number;
+  players: UnsettledPlayerSummary[];
+}
+

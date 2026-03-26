@@ -222,6 +222,7 @@ fn create_empty_v3_domain_tables(connection: &Connection) -> Result<(), AppError
           kill_points INTEGER NOT NULL DEFAULT 0 CHECK (kill_points >= 0),
           revive_points INTEGER NOT NULL DEFAULT 0 CHECK (revive_points >= 0),
           is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+          is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
           rounding_mode TEXT NOT NULL DEFAULT 'round' CHECK (rounding_mode IN ('floor', 'round', 'ceil')),
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -352,6 +353,7 @@ fn migrate_domain_tables_to_account_scope(
           kill_points INTEGER NOT NULL DEFAULT 0 CHECK (kill_points >= 0),
           revive_points INTEGER NOT NULL DEFAULT 0 CHECK (revive_points >= 0),
           is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+          is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
           rounding_mode TEXT NOT NULL DEFAULT 'round' CHECK (rounding_mode IN ('floor', 'round', 'ceil')),
           created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -413,8 +415,8 @@ fn migrate_domain_tables_to_account_scope(
         [account_id],
     )?;
     tx.execute(
-        "INSERT INTO point_rules_new (id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at)
-         SELECT id, ?1, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at FROM point_rules",
+        "INSERT INTO point_rules_new (id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, is_deleted, rounding_mode, created_at, updated_at)
+         SELECT id, ?1, name, damage_points_per_damage, kill_points, revive_points, is_active, 0, rounding_mode, created_at, updated_at FROM point_rules",
         [account_id],
     )?;
     tx.execute(
@@ -483,6 +485,62 @@ fn migrate_v2_to_v3(connection: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+fn migrate_v3_to_v4(connection: &Connection) -> Result<(), AppError> {
+    if !column_exists(connection, "point_rules", "is_deleted")? {
+        connection.execute(
+            "ALTER TABLE point_rules ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1))",
+            [],
+        )?;
+    }
+
+    connection.execute(
+        "UPDATE point_rules SET is_deleted = 0 WHERE is_deleted IS NULL",
+        [],
+    )?;
+
+    Ok(())
+}
+
+fn migrate_v4_to_v5(connection: &Connection) -> Result<(), AppError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS point_settlement_batches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          start_match_id TEXT NOT NULL,
+          end_match_id TEXT NOT NULL,
+          rule_id_snapshot INTEGER,
+          rule_name_snapshot TEXT,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+          FOREIGN KEY (account_id, start_match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+          FOREIGN KEY (account_id, end_match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+          FOREIGN KEY (rule_id_snapshot) REFERENCES point_rules(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS point_match_meta (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          note TEXT,
+          settled_at DATETIME,
+          settlement_batch_id INTEGER,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE (account_id, match_id),
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+          FOREIGN KEY (settlement_batch_id) REFERENCES point_settlement_batches(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_point_settlement_batches_account_created_at ON point_settlement_batches(account_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settled_at ON point_match_meta(account_id, settled_at);
+        CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settlement_batch_id ON point_match_meta(account_id, settlement_batch_id);
+        "#,
+    )?;
+
+    Ok(())
+}
+
 pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
     let version = current_version(connection)?;
 
@@ -497,6 +555,14 @@ pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
         if version < 3 {
             migrate_v2_to_v3(connection)?;
             set_version(connection, 3)?;
+        }
+        if version < 4 {
+            migrate_v3_to_v4(connection)?;
+            set_version(connection, 4)?;
+        }
+        if version < 5 {
+            migrate_v4_to_v5(connection)?;
+            set_version(connection, 5)?;
         }
     }
 

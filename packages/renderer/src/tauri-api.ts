@@ -9,10 +9,19 @@ import type {
   MatchPlayer,
   PointRecord,
   PointRule,
+  SettlePointMatchesInput,
   SyncStatus,
   Teammate,
+  UpdatePointMatchNoteInput,
   UpdatePointRuleInput,
   UpdateTeammateInput,
+  PointHistoryListItem,
+  PointHistoryMatchGroup,
+  PointHistoryRuleChangeMarker,
+  PointHistoryPlayerBreakdown,
+  PointBattleDelta,
+  UnsettledBattleSummary,
+  UnsettledPlayerSummary,
 } from '@pubg-point-rankings/shared';
 
 export interface Account {
@@ -44,6 +53,16 @@ export interface GameProcessStatus {
   lastProcessCheckAtMs: number | null;
   lastRecentMatchCheckAtMs: number | null;
 }
+
+export type {
+  PointHistoryListItem,
+  PointHistoryMatchGroup,
+  PointHistoryRuleChangeMarker,
+  PointHistoryPlayerBreakdown,
+  PointBattleDelta,
+  UnsettledBattleSummary,
+  UnsettledPlayerSummary,
+} from '@pubg-point-rankings/shared';
 
 export interface AppAPIClient {
   settings: {
@@ -94,6 +113,10 @@ export interface AppAPIClient {
   points: {
     getAll(limit?: number, offset?: number): Promise<PointRecord[]>;
     getByMatch(matchId: string): Promise<PointRecord[]>;
+    getHistoryGroups(limit?: number, offset?: number): Promise<PointHistoryListItem[]>;
+    getUnsettledSummary(): Promise<UnsettledBattleSummary>;
+    settleThroughMatch(input: SettlePointMatchesInput): Promise<{ settlementBatchId: number; settledMatchCount: number }>;
+    updateMatchNote(input: UpdatePointMatchNoteInput): Promise<void>;
   };
   sync: {
     getStatus(): Promise<SyncStatus>;
@@ -224,6 +247,75 @@ interface PointRecordDto {
   createdAt: string;
 }
 
+interface PointHistoryPlayerBreakdownDto {
+  matchPlayerId: number;
+  teammateId: number | null;
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  displayNicknameSnapshot: string | null;
+  isSelf: boolean;
+  isPointsEnabledSnapshot: boolean;
+  damage: number;
+  kills: number;
+  revives: number;
+  damagePointsPerDamageSnapshot: number;
+  killPointsSnapshot: number;
+  revivePointsSnapshot: number;
+  damagePoints: number;
+  killPoints: number;
+  revivePoints: number;
+  totalPoints: number;
+}
+
+interface PointBattleDeltaDto {
+  matchPlayerId: number;
+  teammateId: number | null;
+  pubgPlayerName: string;
+  displayNicknameSnapshot: string | null;
+  delta: number;
+}
+
+interface PointHistoryMatchGroupDto {
+  type: 'match_group';
+  matchId: string;
+  playedAt: string;
+  mapName: string | null;
+  gameMode: string | null;
+  ruleId: number;
+  ruleNameSnapshot: string;
+  isSettled: boolean;
+  settledAt: string | null;
+  settlementBatchId: number | null;
+  note: string | null;
+  players: PointHistoryPlayerBreakdownDto[];
+  battleDeltas: PointBattleDeltaDto[];
+}
+
+interface PointHistoryRuleChangeMarkerDto {
+  type: 'rule_change_marker';
+  previousRuleName: string;
+  nextRuleName: string;
+  createdAt: string;
+}
+
+type PointHistoryListItemDto =
+  | PointHistoryMatchGroupDto
+  | PointHistoryRuleChangeMarkerDto;
+
+interface UnsettledPlayerSummaryDto {
+  teammateId: number | null;
+  pubgPlayerName: string;
+  displayNickname: string | null;
+  isSelf: boolean;
+  totalDelta: number;
+}
+
+interface UnsettledBattleSummaryDto {
+  activeRuleName: string | null;
+  unsettledMatchCount: number;
+  players: UnsettledPlayerSummaryDto[];
+}
+
 function isCommandMissingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /not found|unknown command|command .* not found|desktop capability not found/i.test(message);
@@ -302,6 +394,50 @@ function hydratePointRecord(dto: PointRecordDto): PointRecord {
   return {
     ...dto,
     createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydratePointHistoryPlayerBreakdown(dto: PointHistoryPlayerBreakdownDto): PointHistoryPlayerBreakdown {
+  return dto;
+}
+
+function hydratePointBattleDelta(dto: PointBattleDeltaDto): PointBattleDelta {
+  return dto;
+}
+
+function hydratePointHistoryMatchGroup(dto: PointHistoryMatchGroupDto): PointHistoryMatchGroup {
+  return {
+    ...dto,
+    playedAt: new Date(dto.playedAt),
+    settledAt: toDate(dto.settledAt),
+    players: dto.players.map(hydratePointHistoryPlayerBreakdown),
+    battleDeltas: dto.battleDeltas.map(hydratePointBattleDelta),
+  };
+}
+
+function hydratePointHistoryRuleChangeMarker(dto: PointHistoryRuleChangeMarkerDto): PointHistoryRuleChangeMarker {
+  return {
+    ...dto,
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydratePointHistoryListItem(dto: PointHistoryListItemDto): PointHistoryListItem {
+  if (dto.type === 'match_group') {
+    return hydratePointHistoryMatchGroup(dto);
+  } else {
+    return hydratePointHistoryRuleChangeMarker(dto);
+  }
+}
+
+function hydrateUnsettledPlayerSummary(dto: UnsettledPlayerSummaryDto): UnsettledPlayerSummary {
+  return dto;
+}
+
+function hydrateUnsettledBattleSummary(dto: UnsettledBattleSummaryDto): UnsettledBattleSummary {
+  return {
+    ...dto,
+    players: dto.players.map(hydrateUnsettledPlayerSummary),
   };
 }
 
@@ -404,6 +540,10 @@ export function getAPI(): AppAPIClient {
     points: {
       getAll: async (limit, offset) => (await invokeOptional<PointRecordDto[]>('points_get_all', { limit, offset }, [])).map(hydratePointRecord),
       getByMatch: async (matchId) => (await invokeOptional<PointRecordDto[]>('points_get_by_match', { matchId }, [])).map(hydratePointRecord),
+      getHistoryGroups: async (limit, offset) => (await invokeOptional<PointHistoryListItemDto[]>('points_get_history_groups', { limit, offset }, [])).map(hydratePointHistoryListItem),
+      getUnsettledSummary: async () => hydrateUnsettledBattleSummary(await invokeRequired<UnsettledBattleSummaryDto>('points_get_unsettled_summary')),
+      settleThroughMatch: async (input) => invokeRequired<{ settlementBatchId: number; settledMatchCount: number }>('points_settle_through_match', { input }),
+      updateMatchNote: async (input) => invokeRequired('points_update_match_note', { input }),
     },
     sync: {
       getStatus: async () => hydrateSyncStatus(await invokeOptional<SyncStatusDto>('sync_get_status', undefined, {

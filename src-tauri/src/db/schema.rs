@@ -1,4 +1,4 @@
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 5;
 
 pub const INITIAL_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS point_rules (
   kill_points INTEGER NOT NULL DEFAULT 0 CHECK (kill_points >= 0),
   revive_points INTEGER NOT NULL DEFAULT 0 CHECK (revive_points >= 0),
   is_active INTEGER NOT NULL DEFAULT 0 CHECK (is_active IN (0, 1)),
+  is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
   rounding_mode TEXT NOT NULL DEFAULT 'round' CHECK (rounding_mode IN ('floor', 'round', 'ceil')),
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -120,6 +121,34 @@ CREATE TABLE IF NOT EXISTS point_records (
   FOREIGN KEY (rule_id) REFERENCES point_rules(id) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS point_settlement_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  start_match_id TEXT NOT NULL,
+  end_match_id TEXT NOT NULL,
+  rule_id_snapshot INTEGER,
+  rule_name_snapshot TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (account_id, start_match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+  FOREIGN KEY (account_id, end_match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+  FOREIGN KEY (rule_id_snapshot) REFERENCES point_rules(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS point_match_meta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  note TEXT,
+  settled_at DATETIME,
+  settlement_batch_id INTEGER,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (account_id, match_id),
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
+  FOREIGN KEY (settlement_batch_id) REFERENCES point_settlement_batches(id) ON DELETE SET NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_teammates_account_name ON teammates(account_id, pubg_player_name);
 CREATE INDEX IF NOT EXISTS idx_teammates_account_account_id ON teammates(account_id, pubg_account_id);
 CREATE INDEX IF NOT EXISTS idx_matches_account_played_at ON matches(account_id, played_at DESC);
@@ -130,17 +159,20 @@ CREATE INDEX IF NOT EXISTS idx_point_records_account_match_id ON point_records(a
 CREATE INDEX IF NOT EXISTS idx_point_records_teammate_id ON point_records(teammate_id);
 CREATE INDEX IF NOT EXISTS idx_point_records_account_created_at ON point_records(account_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_point_rules_account_created_at ON point_rules(account_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_point_settlement_batches_account_created_at ON point_settlement_batches(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settled_at ON point_match_meta(account_id, settled_at);
+CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settlement_batch_id ON point_match_meta(account_id, settlement_batch_id);
 
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
   applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (3);
+INSERT OR IGNORE INTO schema_version (version) VALUES (5);
 "#;
 
 pub const DEFAULT_DATA_SQL: &str = r#"
-INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '3', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('auto_recent_match_enabled', '1', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_process_check_interval_seconds', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('not_running_process_check_interval_seconds', '30', CURRENT_TIMESTAMP);

@@ -442,46 +442,46 @@
           </div>
         </section>
 
-        <!-- Point History View -->
-        <section id="view-points" class="view">
-          <header class="view-header">
-            <h1 data-i18n="points.title">Point History</h1>
-            <p class="view-subtitle" data-i18n="points.subtitle">Review awarded points across synced matches</p>
-          </header>
+         <!-- Point History View -->
+         <section id="view-points" class="view">
+           <header class="view-header">
+             <h1 data-i18n="points.title">Point History</h1>
+             <p class="view-subtitle" data-i18n="points.subtitle">Review awarded points across synced matches</p>
+           </header>
 
-          <div class="view-content">
-            <div class="empty-state empty-state-large" id="points-empty">
-              <div class="empty-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <title>No points empty state</title>
-                  <circle cx="12" cy="8" r="7"/>
-                  <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
-                </svg>
-              </div>
-              <h3 data-i18n="points.emptyTitle">No Points Yet</h3>
-              <p data-i18n="points.emptyHint">Point history will appear after match sync completes.</p>
-            </div>
+           <div class="view-content">
+             <div class="empty-state empty-state-large" id="points-empty">
+               <div class="empty-icon">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                   <title>No points empty state</title>
+                   <circle cx="12" cy="8" r="7"/>
+                   <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+                 </svg>
+               </div>
+               <h3 data-i18n="points.emptyTitle">No Points Yet</h3>
+               <p data-i18n="points.emptyHint">Point history will appear after match sync completes.</p>
+             </div>
 
-            <div class="points-container hidden" id="points-container">
-              <div class="stats-bar" id="points-stats"></div>
-              <div class="table-wrapper">
-                <table class="data-table data-table-full">
-                  <thead>
-                    <tr>
-                      <th data-i18n="detail.player">Player</th>
-                      <th data-i18n="detail.matchId">Match ID</th>
-                      <th data-i18n="points.rule">Rule</th>
-                      <th data-i18n="points.amount">Amount</th>
-                      <th data-i18n="common.date">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody id="points-list"></tbody>
-                </table>
+             <div class="points-container hidden" id="points-container">
+                <div class="unsettled-summary-panel" id="unsettled-summary-panel">
+                  <div class="unsettled-summary-header">
+                    <div>
+                      <h3 data-i18n="points.unsettledPanelTitle">Unsettled Summary</h3>
+                      <p class="unsettled-summary-subtitle">
+                        <span id="unsettled-rule-text">--</span>
+                        <span aria-hidden="true"> · </span>
+                        <span id="unsettled-count-badge">0</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div class="points-summary-track" id="unsettled-players-container"></div>
+                </div>
+
+                <div class="match-history-list" id="match-history-list"></div>
+                <div class="pagination" id="points-pagination"></div>
               </div>
-              <div class="pagination" id="points-pagination"></div>
             </div>
-          </div>
-         </section>
+          </section>
 
          <!-- Settings View -->
          <section id="view-settings" class="view">
@@ -711,6 +711,27 @@
         </div>
         <div class="modal-body">
           <div id="match-detail-content"></div>
+        </div>
+      </div>
+
+      <!-- Point Note Modal -->
+      <div id="modal-point-note" class="modal hidden">
+        <div class="modal-header">
+          <h3 id="point-note-modal-title">Add Note</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="point-note-form">
+            <input type="hidden" id="point-note-match-id">
+            <div class="form-group">
+              <label for="point-note-content" data-i18n="points.note">Note</label>
+              <textarea id="point-note-content" class="form-input point-note-textarea" rows="4"></textarea>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" data-i18n="modal.save">Save</button>
+            </div>
+          </form>
         </div>
       </div>
 

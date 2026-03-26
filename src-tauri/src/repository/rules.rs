@@ -52,7 +52,7 @@ impl<'a> PointRulesRepository<'a> {
     pub fn get_all(&self) -> Result<Vec<PointRuleDto>, AppError> {
         let mut statement = self.connection.prepare(
             "SELECT id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at
-             FROM point_rules WHERE account_id = ?1 ORDER BY created_at",
+             FROM point_rules WHERE account_id = ?1 AND is_deleted = 0 ORDER BY created_at",
         )?;
 
         let rows = statement.query_map([self.account_id], |row| Self::map_row(row))?;
@@ -62,7 +62,7 @@ impl<'a> PointRulesRepository<'a> {
     pub fn get_active(&self) -> Result<Option<PointRuleDto>, AppError> {
         let result = self.connection.query_row(
             "SELECT id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at
-             FROM point_rules WHERE account_id = ?1 AND is_active = 1 LIMIT 1",
+             FROM point_rules WHERE account_id = ?1 AND is_active = 1 AND is_deleted = 0 LIMIT 1",
             [self.account_id],
             Self::map_row,
         );
@@ -77,7 +77,7 @@ impl<'a> PointRulesRepository<'a> {
     pub fn get_by_id(&self, id: i64) -> Result<Option<PointRuleDto>, AppError> {
         let result = self.connection.query_row(
             "SELECT id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at
-             FROM point_rules WHERE account_id = ?1 AND id = ?2",
+             FROM point_rules WHERE account_id = ?1 AND id = ?2 AND is_deleted = 0",
             params![self.account_id, id],
             Self::map_row,
         );
@@ -92,8 +92,8 @@ impl<'a> PointRulesRepository<'a> {
     pub fn create(&self, input: CreatePointRuleInput) -> Result<PointRuleDto, AppError> {
         self.connection.execute(
             "INSERT INTO point_rules
-             (account_id, name, damage_points_per_damage, kill_points, revive_points, rounding_mode, is_active, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+             (account_id, name, damage_points_per_damage, kill_points, revive_points, rounding_mode, is_active, is_deleted, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
             params![
                 self.account_id,
                 input.name,
@@ -115,7 +115,7 @@ impl<'a> PointRulesRepository<'a> {
         }
 
         let first_rule = self.connection.query_row(
-            "SELECT id FROM point_rules WHERE account_id = ?1 ORDER BY created_at LIMIT 1",
+            "SELECT id FROM point_rules WHERE account_id = ?1 AND is_deleted = 0 ORDER BY created_at LIMIT 1",
             [self.account_id],
             |row| row.get::<_, i64>(0),
         );
@@ -126,8 +126,8 @@ impl<'a> PointRulesRepository<'a> {
 
         let rule = self.connection.query_row(
             "INSERT INTO point_rules
-             (account_id, name, damage_points_per_damage, kill_points, revive_points, rounding_mode, is_active, created_at, updated_at)
-             VALUES (?1, 'Default Rules', 2, 300, 150, 'round', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             (account_id, name, damage_points_per_damage, kill_points, revive_points, rounding_mode, is_active, is_deleted, created_at, updated_at)
+             VALUES (?1, 'Default Rules', 2, 300, 150, 'round', 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
              RETURNING id, account_id, name, damage_points_per_damage, kill_points, revive_points, is_active, rounding_mode, created_at, updated_at",
             [self.account_id],
             Self::map_row,
@@ -178,7 +178,7 @@ impl<'a> PointRulesRepository<'a> {
         params.push(input.id.into());
 
         let sql = format!(
-            "UPDATE point_rules SET {} WHERE account_id = ? AND id = ?",
+            "UPDATE point_rules SET {} WHERE account_id = ? AND id = ? AND is_deleted = 0",
             sets.join(", ")
         );
         self.connection.execute(&sql, params_from_iter(params))?;
@@ -189,7 +189,7 @@ impl<'a> PointRulesRepository<'a> {
 
     pub fn delete(&self, id: i64) -> Result<(), AppError> {
         let is_active = self.connection.query_row(
-            "SELECT is_active FROM point_rules WHERE account_id = ?1 AND id = ?2",
+            "SELECT is_active FROM point_rules WHERE account_id = ?1 AND id = ?2 AND is_deleted = 0",
             params![self.account_id, id],
             |row| row.get::<_, i64>(0),
         );
@@ -197,21 +197,10 @@ impl<'a> PointRulesRepository<'a> {
         if let Ok(1) = is_active {
             return Err(AppError::Message("Cannot delete active rule".to_string()));
         }
-
-        let count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM point_records WHERE account_id = ?1 AND rule_id = ?2",
-            params![self.account_id, id],
-            |row| row.get(0),
-        )?;
-
-        if count > 0 {
-            return Err(AppError::Message(
-                "Cannot delete rule that has been used".to_string(),
-            ));
-        }
-
         self.connection.execute(
-            "DELETE FROM point_rules WHERE account_id = ?1 AND id = ?2",
+            "UPDATE point_rules
+             SET is_deleted = 1, is_active = 0, updated_at = CURRENT_TIMESTAMP
+             WHERE account_id = ?1 AND id = ?2 AND is_deleted = 0",
             params![self.account_id, id],
         )?;
 

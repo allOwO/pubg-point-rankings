@@ -1,4 +1,4 @@
-import { getAPI, getRuntimeHost, type Account } from './tauri-api';
+import { getAPI, getRuntimeHost, type Account, type PointHistoryListItem, type UnsettledBattleSummary } from './tauri-api';
 import {
   APP_LANGUAGE_SETTING_KEY,
   DEFAULT_LOCALE,
@@ -484,11 +484,16 @@ export class AppState {
   activeRule: PointRule | null = null;
   matches: Match[] = [];
   pointRecords: PointRecord[] = [];
+  pointHistory: PointHistoryListItem[] = [];
+  unsettledSummary: UnsettledBattleSummary | null = null;
+  pendingSettleMatchId: string | null = null;
+  pendingSettleTimerId: number | null = null;
   syncStatus: SyncStatus | null = null;
   appStatus: AppStatus | null = null;
   gameProcessStatus: GameProcessStatus | null = null;
   pollingSettings: PollingSettings = { ...DEFAULT_POLLING_SETTINGS };
   locale: Locale = DEFAULT_LOCALE;
+  hasConfiguredApiKey = false;
   isLoading = false;
 }
 
@@ -608,6 +613,15 @@ function formatPoints(points: number): string {
   return `${Math.round(points).toLocaleString()} pts`;
 }
 
+function formatInteger(value: number): string {
+  return Math.round(value).toLocaleString(state.locale);
+}
+
+function formatSignedInteger(value: number): string {
+  const rounded = Math.round(value);
+  return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString(state.locale)}`;
+}
+
 function formatDate(date: Date | string | null): string {
   if (!date) return t('common.never');
   const d = new Date(date);
@@ -631,6 +645,31 @@ function formatDateTime(date: Date | string | null): string {
 
 function truncateMatchId(matchId: string): string {
   return matchId.slice(0, 8) + '...';
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function clearPendingSettleState() {
+  if (state.pendingSettleTimerId !== null) {
+    window.clearTimeout(state.pendingSettleTimerId);
+  }
+
+  state.pendingSettleTimerId = null;
+  state.pendingSettleMatchId = null;
+}
+
+function getHistoryMatchGroup(matchId: string) {
+  return state.pointHistory.find(
+    (item): item is Extract<PointHistoryListItem, { type: 'match_group' }> =>
+      item.type === 'match_group' && item.matchId === matchId,
+  );
 }
 
 function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
@@ -726,6 +765,7 @@ function closeAllModals() {
   const overlay = document.getElementById('modal-overlay');
   const modals = document.querySelectorAll('.modal');
   const teammateIdInput = document.getElementById('teammate-id') as HTMLInputElement | null;
+  const pointNoteMatchIdInput = document.getElementById('point-note-match-id') as HTMLInputElement | null;
   if (overlay) {
     overlay.classList.add('hidden');
   }
@@ -733,6 +773,7 @@ function closeAllModals() {
     modal.classList.add('hidden');
   });
   if (teammateIdInput) teammateIdInput.value = '';
+  if (pointNoteMatchIdInput) pointNoteMatchIdInput.value = '';
   confirmCallback = null;
 }
 
@@ -819,6 +860,10 @@ export function navigateTo(viewId: string) {
   // Save current view to localStorage for persistence
   localStorage.setItem('lastActiveView', viewId);
 
+  if (viewId !== 'points') {
+    clearPendingSettleState();
+  }
+
   // Update nav items
   document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.remove('active');
@@ -863,12 +908,14 @@ export function navigateTo(viewId: string) {
 async function loadAppStatus() {
   try {
     const api = getAPI();
-    const [appStatus, gameProcessStatus] = await Promise.all([
+    const [appStatus, gameProcessStatus, activeAccount] = await Promise.all([
       api.app.getStatus(),
       api.app.getGameProcessStatus(),
+      api.accounts.getActive(),
     ]);
     state.appStatus = appStatus;
     state.gameProcessStatus = gameProcessStatus;
+    state.hasConfiguredApiKey = Boolean(activeAccount?.pubgApiKey?.trim());
     state.syncStatus = state.appStatus.syncStatus;
     updateSyncIndicator();
   } catch (error) {
@@ -881,12 +928,14 @@ async function loadDashboard() {
     const api = getAPI();
     
     // Load status
-    const [appStatus, gameProcessStatus] = await Promise.all([
+    const [appStatus, gameProcessStatus, activeAccount] = await Promise.all([
       api.app.getStatus(),
       api.app.getGameProcessStatus(),
+      api.accounts.getActive(),
     ]);
     state.appStatus = appStatus;
     state.gameProcessStatus = gameProcessStatus;
+    state.hasConfiguredApiKey = Boolean(activeAccount?.pubgApiKey?.trim());
     state.syncStatus = state.appStatus.syncStatus;
     
     // Update UI
@@ -1035,7 +1084,7 @@ function updateDashboardStatus() {
   }
 
   if (systemBadge) {
-    if (state.appStatus.isDatabaseReady && !state.syncStatus?.error) {
+    if (state.appStatus.isDatabaseReady && !state.syncStatus?.error && state.hasConfiguredApiKey) {
       systemBadge.textContent = t('status.ready');
       systemBadge.className = 'badge badge-success';
     } else if (state.appStatus.isDatabaseReady) {
@@ -1068,6 +1117,10 @@ function updateSyncIndicator() {
     dot?.classList.remove('syncing');
     dot?.classList.add('error');
     if (text) text.textContent = t('sync.syncError');
+  } else if (!state.hasConfiguredApiKey) {
+    dot?.classList.remove('syncing');
+    dot?.classList.add('error');
+    if (text) text.textContent = t('sync.apiKeyMissing');
   } else {
     dot?.classList.remove('syncing', 'error');
     if (text) text.textContent = t('status.ready');
@@ -1160,30 +1213,46 @@ async function loadTeammates() {
 function renderTeammatesList() {
   const emptyEl = document.getElementById('teammates-empty');
   const listEl = document.getElementById('teammates-list');
-  
+
   if (!emptyEl || !listEl) return;
-  
+
   if (state.teammates.length === 0) {
     emptyEl.classList.remove('hidden');
     listEl.classList.add('hidden');
     return;
   }
-  
+
   emptyEl.classList.add('hidden');
   listEl.classList.remove('hidden');
-  
+
   listEl.innerHTML = state.teammates.map(teammate => `
     <div class="friend-row ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
       <div class="friend-row-main">
         <div class="friend-row-label">${teammate.pubgAccountId ? t('friends.playerId') : t('friends.playerIdentifier')}</div>
-        <div class="friend-row-value">${getFriendIdentifier(teammate)}</div>
+        <div class="friend-row-value">${escapeHtml(getFriendIdentifier(teammate))}</div>
       </div>
       <div class="friend-row-main">
         <div class="friend-row-label">${t('friends.savedNickname')}</div>
-        <div class="friend-row-value ${teammate.displayNickname ? '' : 'muted'}">${teammate.displayNickname || t('friends.notSet')}</div>
+        <div class="friend-row-value ${teammate.displayNickname ? '' : 'muted'}">${escapeHtml(teammate.displayNickname || t('friends.notSet'))}</div>
       </div>
-      <div class="card-actions friend-row-actions">
-        <button class="btn btn-secondary" onclick="editTeammateNickname(${teammate.id})">${teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname')}</button>
+      <div class="friend-row-actions friend-row-actions-stack">
+        <div class="friend-participation-control">
+          <span class="friend-row-label">${t('friends.participatesInBattle')}</span>
+          <div class="friend-participation-toggle">
+            <button
+              type="button"
+              class="participation-switch ${teammate.isPointsEnabled ? 'active' : ''}"
+              aria-pressed="${teammate.isPointsEnabled ? 'true' : 'false'}"
+              data-teammate-action="toggle-participation"
+              data-teammate-id="${teammate.id}"
+              data-teammate-enabled="${teammate.isPointsEnabled ? '1' : '0'}"
+            ></button>
+            ${teammate.isPointsEnabled ? '' : `<span class="badge badge-warning">${escapeHtml(t('friends.notParticipating'))}</span>`}
+          </div>
+        </div>
+        <button type="button" class="btn btn-secondary" data-teammate-action="edit-nickname" data-teammate-id="${teammate.id}">
+          ${teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname')}
+        </button>
       </div>
     </div>
   `).join('');
@@ -1240,9 +1309,9 @@ function renderRulesList() {
         </div>
       </div>
       <div class="card-actions">
-        ${!rule.isActive ? `<button class="btn btn-secondary" onclick="activateRule(${rule.id})">${t('rules.activate')}</button>` : ''}
-        <button class="btn btn-secondary" onclick="editRule(${rule.id})">${t('rules.edit')}</button>
-        <button class="btn btn-danger" onclick="deleteRule(${rule.id})">${t('rules.delete')}</button>
+        ${!rule.isActive ? `<button type="button" class="btn btn-secondary" data-rule-action="activate" data-rule-id="${rule.id}">${t('rules.activate')}</button>` : ''}
+        <button type="button" class="btn btn-secondary" data-rule-action="edit" data-rule-id="${rule.id}">${t('rules.edit')}</button>
+        <button type="button" class="btn btn-danger" data-rule-action="delete" data-rule-id="${rule.id}">${t('rules.delete')}</button>
       </div>
     </div>
   `).join('');
@@ -1295,8 +1364,22 @@ function renderMatchesList() {
 async function loadPointRecords() {
   try {
     const api = getAPI();
-    const pointRecords = await api.points.getAll(50, 0);
-    state.pointRecords = pointRecords;
+    const [pointHistory, unsettledSummary] = await Promise.all([
+      api.points.getHistoryGroups(50, 0),
+      api.points.getUnsettledSummary(),
+    ]);
+    state.pointHistory = pointHistory;
+    state.unsettledSummary = unsettledSummary;
+
+    if (
+      state.pendingSettleMatchId
+      && !state.pointHistory.some(
+        (item) => item.type === 'match_group' && item.matchId === state.pendingSettleMatchId && !item.isSettled,
+      )
+    ) {
+      clearPendingSettleState();
+    }
+
     renderPointRecordsList();
   } catch (error) {
     console.error('Failed to load point records:', error);
@@ -1307,45 +1390,247 @@ async function loadPointRecords() {
 function renderPointRecordsList() {
   const emptyEl = document.getElementById('points-empty');
   const containerEl = document.getElementById('points-container');
-  const listEl = document.getElementById('points-list');
-  const statsEl = document.getElementById('points-stats');
-  
-  if (!emptyEl || !containerEl || !listEl) return;
-  
-  if (state.pointRecords.length === 0) {
+  const unsettledPanelEl = document.getElementById('unsettled-summary-panel');
+  const unsettledCountBadgeEl = document.getElementById('unsettled-count-badge');
+  const unsettledRuleTextEl = document.getElementById('unsettled-rule-text');
+  const unsettledPlayersContainerEl = document.getElementById('unsettled-players-container');
+  const matchHistoryListEl = document.getElementById('match-history-list');
+
+  if (!emptyEl || !containerEl || !unsettledPanelEl || !unsettledCountBadgeEl || !unsettledRuleTextEl || !unsettledPlayersContainerEl || !matchHistoryListEl) return;
+
+  if (state.pointHistory.length === 0) {
     emptyEl.classList.remove('hidden');
     containerEl.classList.add('hidden');
     return;
   }
-  
+
   emptyEl.classList.add('hidden');
   containerEl.classList.remove('hidden');
-  
-  // Calculate stats
-  const totalAmount = state.pointRecords.reduce((sum, record) => sum + record.points, 0);
-  
-  if (statsEl) {
-    statsEl.innerHTML = `
-      <div class="stat-item">
-        <div class="stat-value">${state.pointRecords.length}</div>
-        <div class="stat-label">${t('points.totalRecords')}</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-value">${formatPoints(totalAmount)}</div>
-        <div class="stat-label">${t('points.totalPoints')}</div>
-      </div>
-    `;
+
+  const unsettledSummary = state.unsettledSummary;
+  const activeRuleLabel = unsettledSummary?.activeRuleName ?? '--';
+  unsettledRuleTextEl.textContent = `${t('points.ruleName')}: ${activeRuleLabel}`;
+  unsettledCountBadgeEl.textContent = `${t('points.unsettledMatches')}: ${unsettledSummary?.unsettledMatchCount ?? 0}`;
+
+  if (!unsettledSummary || unsettledSummary.players.length === 0) {
+    unsettledPlayersContainerEl.innerHTML = `<div class="points-summary-empty text-muted">${escapeHtml(t('points.unsettledEmpty'))}</div>`;
+  } else {
+    unsettledPlayersContainerEl.innerHTML = unsettledSummary.players.map((player) => {
+      const displayName = escapeHtml(player.displayNickname || player.pubgPlayerName);
+      const deltaClass = player.totalDelta > 0 ? 'positive' : player.totalDelta < 0 ? 'negative' : 'zero';
+      return `
+        <div class="points-summary-player-chip">
+          <div class="points-summary-player-name">${displayName}${player.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : ''}</div>
+          <div class="point-delta ${deltaClass}">${escapeHtml(formatSignedInteger(player.totalDelta))}</div>
+        </div>
+      `;
+    }).join('');
   }
-  
-  listEl.innerHTML = state.pointRecords.map(pointRecord => `
-    <tr>
-      <td>${truncateMatchId(pointRecord.matchId)}</td>
-      <td>${truncateMatchId(pointRecord.matchId)}</td>
-      <td>${pointRecord.ruleNameSnapshot}</td>
-      <td class="text-success">${formatPoints(pointRecord.points)}</td>
-      <td>${formatDateTime(pointRecord.createdAt)}</td>
-    </tr>
-  `).join('');
+
+  matchHistoryListEl.innerHTML = state.pointHistory.map((item) => {
+    if (item.type === 'rule_change_marker') {
+      return `
+        <div class="rule-change-marker">
+          <span>${escapeHtml(item.previousRuleName)} → ${escapeHtml(item.nextRuleName)}</span>
+          <span class="text-muted">${escapeHtml(formatDateTime(item.createdAt))}</span>
+        </div>
+      `;
+    }
+
+    const playerNamesById = new Map(item.players.map((player) => [
+      player.matchPlayerId,
+      player.displayNicknameSnapshot || player.pubgPlayerName,
+    ]));
+
+    const playerRows = item.players.map((player) => {
+      const displayName = escapeHtml(player.displayNicknameSnapshot || player.pubgPlayerName);
+      const disabledBadge = player.isPointsEnabledSnapshot
+        ? ''
+        : `<span class="badge badge-warning">${escapeHtml(t('friends.notParticipating'))}</span>`;
+
+      const damageRate = formatInteger(player.damagePointsPerDamageSnapshot);
+      const damageValue = formatInteger(player.damage);
+      const damagePoints = formatInteger(player.damagePoints);
+      const kills = formatInteger(player.kills);
+      const killRate = formatInteger(player.killPointsSnapshot);
+      const killPoints = formatInteger(player.killPoints);
+      const revives = formatInteger(player.revives);
+      const reviveRate = formatInteger(player.revivePointsSnapshot);
+      const revivePoints = formatInteger(player.revivePoints);
+      const totalPoints = formatInteger(player.totalPoints);
+
+      return `
+        <div class="point-player-row ${player.isPointsEnabledSnapshot ? '' : 'disabled'}">
+          <div class="point-player-header">
+            <div class="point-player-name-wrap">
+              <span class="point-player-name">${displayName}${player.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : ''}</span>
+              ${disabledBadge}
+            </div>
+            <span class="point-player-total">${escapeHtml(totalPoints)}</span>
+          </div>
+          <div class="point-calc-line">
+            ${escapeHtml(t('detail.damage'))} ${escapeHtml(damageValue)}×${escapeHtml(damageRate)}=${escapeHtml(damagePoints)} +
+            ${escapeHtml(t('detail.kills'))} ${escapeHtml(kills)}×${escapeHtml(killRate)}=${escapeHtml(killPoints)} +
+            ${escapeHtml(t('detail.revives'))} ${escapeHtml(revives)}×${escapeHtml(reviveRate)}=${escapeHtml(revivePoints)} =
+            ${escapeHtml(t('detail.points'))} ${escapeHtml(totalPoints)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const battleDeltas = item.battleDeltas.map((delta) => {
+      const deltaClass = delta.delta > 0 ? 'positive' : delta.delta < 0 ? 'negative' : 'zero';
+      const displayName = escapeHtml(playerNamesById.get(delta.matchPlayerId) || delta.pubgPlayerName);
+      return `
+        <div class="point-battle-chip ${deltaClass}">
+          <span class="point-battle-name">${displayName}</span>
+          <span class="point-delta ${deltaClass}">${escapeHtml(formatSignedInteger(delta.delta))}</span>
+        </div>
+      `;
+    }).join('');
+
+    const noteRow = item.note && item.note.trim()
+      ? `
+        <div class="note-row">
+          <div class="note-content">
+            <div class="note-text"><strong>${escapeHtml(t('points.note'))}:</strong> ${escapeHtml(item.note)}</div>
+          </div>
+        </div>
+      `
+      : '';
+
+    const settleLabel = state.pendingSettleMatchId === item.matchId ? t('points.confirmSettle') : t('points.settle');
+    const settleButton = item.isSettled
+      ? `<span class="badge badge-success settled-badge">${escapeHtml(t('points.settled'))}</span>`
+      : `
+        <button type="button" class="btn btn-settlement ${state.pendingSettleMatchId === item.matchId ? 'pending' : ''}" data-points-action="settle" data-match-id="${escapeHtml(item.matchId)}">
+          ${escapeHtml(settleLabel)}
+        </button>
+      `;
+
+    return `
+      <article class="match-history-card ${item.isSettled ? 'settled' : ''}">
+        <div class="point-match-layout">
+          <div class="point-match-content">
+            <div class="match-history-header">
+              <div class="match-history-meta">
+                <div class="match-history-title">${escapeHtml(item.mapName || t('common.unknown'))} · ${escapeHtml(item.gameMode || t('common.unknown'))}</div>
+                <div class="match-history-date">${escapeHtml(formatDateTime(item.playedAt))} · ${escapeHtml(truncateMatchId(item.matchId))}</div>
+                <div class="point-match-submeta">
+                  <span class="badge badge-info">${escapeHtml(t('points.ruleName'))}: ${escapeHtml(item.ruleNameSnapshot)}</span>
+                  ${item.isSettled ? `<span class="badge badge-success">${escapeHtml(t('points.settled'))}</span>` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="point-section-label">${escapeHtml(t('points.calculation'))}</div>
+            <div class="point-player-list">${playerRows}</div>
+            <div class="point-section-label">${escapeHtml(t('points.netBattle'))}</div>
+            <div class="point-battle-row">${battleDeltas}</div>
+            ${noteRow}
+          </div>
+          <aside class="match-action-column point-match-actions">
+            <button type="button" class="btn btn-secondary" data-points-action="note" data-match-id="${escapeHtml(item.matchId)}">
+              ${escapeHtml(item.note ? t('points.editNote') : t('points.addNote'))}
+            </button>
+            ${settleButton}
+          </aside>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function openPointNoteModal(matchId: string) {
+  const group = getHistoryMatchGroup(matchId);
+  const titleEl = document.getElementById('point-note-modal-title');
+  const matchIdInput = document.getElementById('point-note-match-id') as HTMLInputElement | null;
+  const noteContentInput = document.getElementById('point-note-content') as HTMLTextAreaElement | null;
+
+  if (!group || !matchIdInput || !noteContentInput || !titleEl) {
+    return;
+  }
+
+  titleEl.textContent = group.note ? t('points.editNote') : t('points.addNote');
+  matchIdInput.value = matchId;
+  noteContentInput.value = group.note ?? '';
+  openModal('modal-point-note');
+}
+
+async function handlePointNoteSubmit(e: Event) {
+  e.preventDefault();
+
+  const form = e.target as HTMLFormElement;
+  const matchIdInput = document.getElementById('point-note-match-id') as HTMLInputElement | null;
+  const noteContentInput = document.getElementById('point-note-content') as HTMLTextAreaElement | null;
+
+  if (!matchIdInput || !noteContentInput) return;
+
+  try {
+    const api = getAPI();
+    await api.points.updateMatchNote({
+      matchId: matchIdInput.value,
+      note: noteContentInput.value.trim() || null,
+    });
+    showToast(t('toast.pointNoteSaved'));
+    closeAllModals();
+    form.reset();
+    await loadPointRecords();
+  } catch (error) {
+    console.error('Failed to save note:', error);
+    showToast(t('toast.pointNoteSaveFailed'), 'error');
+  }
+}
+
+async function handleSettleMatch(matchId: string) {
+  const group = getHistoryMatchGroup(matchId);
+  if (!group || group.isSettled) {
+    return;
+  }
+
+  if (state.pendingSettleMatchId !== matchId) {
+    clearPendingSettleState();
+    state.pendingSettleMatchId = matchId;
+    state.pendingSettleTimerId = window.setTimeout(() => {
+      clearPendingSettleState();
+      renderPointRecordsList();
+    }, 2000);
+    renderPointRecordsList();
+    return;
+  }
+
+  clearPendingSettleState();
+
+  try {
+    const api = getAPI();
+    await api.points.settleThroughMatch({ endMatchId: matchId });
+    showToast(t('toast.pointSettled'));
+    await loadPointRecords();
+  } catch (error) {
+    console.error('Failed to settle points through match:', error);
+    showToast(t('toast.pointSettleFailed'), 'error');
+    renderPointRecordsList();
+  }
+}
+
+async function handleToggleTeammateParticipation(teammateId: number, isEnabled: boolean) {
+  try {
+    const api = getAPI();
+    const teammate = state.teammates.find((entry) => entry.id === teammateId);
+    if (!teammate) {
+      return;
+    }
+
+    await api.teammates.update({
+      id: teammateId,
+      displayNickname: teammate.displayNickname,
+      isPointsEnabled: isEnabled,
+    });
+
+    await Promise.all([loadTeammates(), loadPointRecords(), loadDashboard()]);
+  } catch (error) {
+    console.error('Failed to toggle participation:', error);
+    showToast(t('toast.friendSaveFailed'), 'error');
+  }
 }
 
 // Form handlers
@@ -2069,21 +2354,84 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('btn-empty-create-rule')?.addEventListener('click', () => {
       document.getElementById('btn-new-rule')?.click();
     });
+
+    document.getElementById('rules-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-rule-action][data-rule-id]');
+      if (!target) {
+        return;
+      }
+
+      const action = target.dataset.ruleAction;
+      const id = Number.parseInt(target.dataset.ruleId ?? '', 10);
+      if (!Number.isFinite(id)) {
+        return;
+      }
+
+      if (action === 'activate') {
+        void window.activateRule?.(id);
+      } else if (action === 'edit') {
+        void window.editRule?.(id);
+      } else if (action === 'delete') {
+        void window.deleteRule?.(id);
+      }
+    });
+
+    document.getElementById('teammates-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-teammate-action][data-teammate-id]');
+      if (!target) {
+        return;
+      }
+
+      const teammateId = Number.parseInt(target.dataset.teammateId ?? '', 10);
+      if (!Number.isFinite(teammateId)) {
+        return;
+      }
+
+      if (target.dataset.teammateAction === 'edit-nickname') {
+        void window.editTeammateNickname?.(teammateId);
+        return;
+      }
+
+      if (target.dataset.teammateAction === 'toggle-participation') {
+        const isEnabled = target.dataset.teammateEnabled === '1';
+        void handleToggleTeammateParticipation(teammateId, !isEnabled);
+      }
+    });
+
+    document.getElementById('match-history-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-points-action][data-match-id]');
+      if (!target) {
+        return;
+      }
+
+      const matchId = target.dataset.matchId;
+      if (!matchId) {
+        return;
+      }
+
+      if (target.dataset.pointsAction === 'note') {
+        openPointNoteModal(matchId);
+        return;
+      }
+
+      if (target.dataset.pointsAction === 'settle') {
+        void handleSettleMatch(matchId);
+      }
+    });
     
     document.getElementById('btn-empty-sync-matches')?.addEventListener('click', () => {
       openModal('modal-sync');
     });
     
     // Form submissions
-    document.getElementById('teammate-form')?.addEventListener('submit', handleTeammateSubmit);
-    document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
-    document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
-    document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
-    document.getElementById('language-settings-form')?.addEventListener('submit', handleLanguageSubmit);
-    
-     // Settings page event listeners
-     document.getElementById('account-settings-form')?.addEventListener('submit', handleAccountSettingsSubmit);
-     document.getElementById('api-key-settings-form')?.addEventListener('submit', handleApiKeySettingsSubmit);
+document.getElementById('teammate-form')?.addEventListener('submit', handleTeammateSubmit);
+document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
+document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
+document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
+document.getElementById('language-settings-form')?.addEventListener('submit', handleLanguageSubmit);
+document.getElementById('account-settings-form')?.addEventListener('submit', handleAccountSettingsSubmit);
+document.getElementById('api-key-settings-form')?.addEventListener('submit', handleApiKeySettingsSubmit);
+document.getElementById('point-note-form')?.addEventListener('submit', handlePointNoteSubmit);
      document.getElementById('btn-sync-friends-manual')?.addEventListener('click', handleManualTeammateSync);
      document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
     

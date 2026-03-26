@@ -147,6 +147,85 @@ export const AppStatusSchema = z.object({
   syncStatus: SyncStatusSchema,
 });
 
+export const PointHistoryPlayerBreakdownSchema = z.object({
+  matchPlayerId: z.number(),
+  teammateId: z.number().nullable(),
+  pubgAccountId: z.string().nullable(),
+  pubgPlayerName: z.string(),
+  displayNicknameSnapshot: z.string().nullable(),
+  isSelf: z.boolean(),
+  isPointsEnabledSnapshot: z.boolean(),
+  damage: z.number(),
+  kills: z.number().int(),
+  revives: z.number().int(),
+  damagePointsPerDamageSnapshot: z.number().int(),
+  killPointsSnapshot: z.number().int(),
+  revivePointsSnapshot: z.number().int(),
+  damagePoints: z.number().int(),
+  killPoints: z.number().int(),
+  revivePoints: z.number().int(),
+  totalPoints: z.number().int(),
+});
+
+export const PointBattleDeltaSchema = z.object({
+  matchPlayerId: z.number(),
+  teammateId: z.number().nullable(),
+  pubgPlayerName: z.string(),
+  displayNicknameSnapshot: z.string().nullable(),
+  delta: z.number().int(),
+});
+
+export const PointHistoryMatchGroupSchema = z.object({
+  type: z.literal('match_group'),
+  matchId: z.string(),
+  playedAt: z.date(),
+  mapName: z.string().nullable(),
+  gameMode: z.string().nullable(),
+  ruleId: z.number(),
+  ruleNameSnapshot: z.string(),
+  isSettled: z.boolean(),
+  settledAt: z.date().nullable(),
+  settlementBatchId: z.number().nullable(),
+  note: z.string().nullable(),
+  players: z.array(PointHistoryPlayerBreakdownSchema),
+  battleDeltas: z.array(PointBattleDeltaSchema),
+});
+
+export const PointHistoryRuleChangeMarkerSchema = z.object({
+  type: z.literal('rule_change_marker'),
+  previousRuleName: z.string(),
+  nextRuleName: z.string(),
+  createdAt: z.date(),
+});
+
+export const PointHistoryListItemSchema = z.discriminatedUnion('type', [
+  PointHistoryMatchGroupSchema,
+  PointHistoryRuleChangeMarkerSchema,
+]);
+
+export const UnsettledPlayerSummarySchema = z.object({
+  teammateId: z.number().nullable(),
+  pubgPlayerName: z.string(),
+  displayNickname: z.string().nullable(),
+  isSelf: z.boolean(),
+  totalDelta: z.number().int(),
+});
+
+export const UnsettledBattleSummarySchema = z.object({
+  activeRuleName: z.string().nullable(),
+  unsettledMatchCount: z.number().int(),
+  players: z.array(UnsettledPlayerSummarySchema),
+});
+
+export const UpdatePointMatchNoteInputSchema = z.object({
+  matchId: z.string(),
+  note: z.string().nullable(),
+});
+
+export const SettlePointMatchesInputSchema = z.object({
+  endMatchId: z.string(),
+});
+
 // Input schemas for create/update operations
 
 export const CreateTeammateInputSchema = z.object({
@@ -200,3 +279,5 @@ export type CreatePointRuleInput = z.infer<typeof CreatePointRuleInputSchema>;
 export type UpdatePointRuleInput = z.infer<typeof UpdatePointRuleInputSchema>;
 export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsInputSchema>;
+export type UpdatePointMatchNoteInput = z.infer<typeof UpdatePointMatchNoteInputSchema>;
+export type SettlePointMatchesInput = z.infer<typeof SettlePointMatchesInputSchema>;
