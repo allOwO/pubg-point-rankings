@@ -144,6 +144,36 @@ interface PollingSettings {
   recentMatchRetryLimit: number;
 }
 
+// Reuse Match and MatchPlayer, add assists as optional property on MatchPlayer
+interface MatchPlayerWithAssists extends MatchPlayer {
+  assists?: number;
+}
+
+interface MatchWithPlayers {
+  match: Match;
+  players: MatchPlayerWithAssists[];
+}
+
+interface DashboardRecentMatchPlayerRow {
+  matchPlayerId: number;
+  displayName: string;
+  kills: number;
+  damage: number;
+  assists: number;
+  revives: number;
+  isSelf: boolean;
+}
+
+interface DashboardRecentMatchRow {
+  matchId: string;
+  mapName: string;
+  gameMode: string;
+  playedAt: Date;
+  status: Match['status'];
+  selfPlayer: DashboardRecentMatchPlayerRow;
+  squad: DashboardRecentMatchPlayerRow[];
+}
+
 interface LanguageOption {
   value: Locale;
   labelKey: TranslationKey;
@@ -276,7 +306,6 @@ function openCreateTeammateModal() {
 
 async function handleManualTeammateSync() {
   const syncButton = document.getElementById('btn-new-teammate') as HTMLButtonElement | null;
-  const dashboardSyncButton = document.getElementById('btn-add-teammate') as HTMLButtonElement | null;
   const settingsSyncButton = document.getElementById('btn-sync-friends-manual') as HTMLButtonElement | null;
 
   if (state.syncStatus?.isSyncing) return;
@@ -286,7 +315,6 @@ async function handleManualTeammateSync() {
 
   try {
     if (syncButton) syncButton.disabled = true;
-    if (dashboardSyncButton) dashboardSyncButton.disabled = true;
     if (settingsSyncButton) settingsSyncButton.disabled = true;
 
     const api = getAPI();
@@ -308,7 +336,6 @@ async function handleManualTeammateSync() {
   } finally {
     await loadAppStatus();
     if (syncButton) syncButton.disabled = false;
-    if (dashboardSyncButton) dashboardSyncButton.disabled = false;
     if (settingsSyncButton) settingsSyncButton.disabled = false;
     setSyncNowButtonState();
   }
@@ -340,6 +367,9 @@ async function loadSettings() {
       if (platformSelect) platformSelect.value = 'steam';
       if (apiKeyInput) apiKeyInput.value = '';
     }
+
+    // Load polling settings as part of settings
+    await loadPollingSettings();
   } catch (error) {
     console.error('Failed to load settings:', error);
     showToast(t('toast.accountLoadFailed'), 'error');
@@ -486,6 +516,8 @@ export class AppState {
   pointRecords: PointRecord[] = [];
   pointHistory: PointHistoryListItem[] = [];
   unsettledSummary: UnsettledBattleSummary | null = null;
+  dashboardRecentMatches: DashboardRecentMatchRow[] = [];
+  expandedDashboardMatchId: string | null = null;
   pendingSettleMatchId: string | null = null;
   pendingSettleTimerId: number | null = null;
   syncStatus: SyncStatus | null = null;
@@ -510,6 +542,41 @@ function getActiveViewId(): string {
 
 function translateMatchStatus(status: Match['status']): string {
   return t(`status.match.${status}` as TranslationKey);
+}
+
+function buildDashboardRecentMatchRow(detail: MatchWithPlayers): DashboardRecentMatchRow | null {
+  const selfPlayer = detail.players.find((player) => player.isSelf);
+  if (!selfPlayer) {
+    return null;
+  }
+
+  const toRow = (player: MatchPlayerWithAssists): DashboardRecentMatchPlayerRow => ({
+    matchPlayerId: player.id,
+    displayName: player.displayNicknameSnapshot || player.pubgPlayerName,
+    kills: player.kills,
+    damage: player.damage,
+    assists: player.assists ?? 0,
+    revives: player.revives,
+    isSelf: player.isSelf,
+  });
+
+  const squad = detail.players
+    .filter((player) => player.teamId === selfPlayer.teamId)
+    .sort((left, right) => {
+      if (left.isSelf !== right.isSelf) return left.isSelf ? -1 : 1;
+      return right.kills - left.kills || right.damage - left.damage || (right.assists ?? 0) - (left.assists ?? 0);
+    })
+    .map(toRow);
+
+  return {
+    matchId: detail.match.matchId,
+    mapName: detail.match.mapName || t('common.unknown'),
+    gameMode: detail.match.gameMode || t('common.unknown'),
+    playedAt: detail.match.matchEndAt || detail.match.playedAt,
+    status: detail.match.status,
+    selfPlayer: toRow(selfPlayer),
+    squad,
+  };
 }
 
 function applyStaticTranslations() {
@@ -567,8 +634,11 @@ async function refreshLocalizedContent() {
   updateDashboardStatus();
   updateActiveRule();
 
-  renderRecentMatches();
-  renderTopTeammates();
+  // New dashboard renderers
+  renderDashboardUnsettledSummary();
+  renderDashboardRecentMatches();
+  
+  // Keep existing renderers for other views
   renderTeammatesList();
   renderRulesList();
   renderMatchesList();
@@ -926,44 +996,61 @@ async function loadAppStatus() {
 async function loadDashboard() {
   try {
     const api = getAPI();
-    
-    // Load status
-    const [appStatus, gameProcessStatus, activeAccount] = await Promise.all([
+
+    const [appStatus, gameProcessStatus, activeAccount, unsettledSummary, activeRule, matches] = await Promise.all([
       api.app.getStatus(),
       api.app.getGameProcessStatus(),
       api.accounts.getActive(),
+      api.points.getUnsettledSummary(),
+      api.rules.getActive(),
+      api.matches.getAll(10, 0),
     ]);
+
     state.appStatus = appStatus;
     state.gameProcessStatus = gameProcessStatus;
     state.hasConfiguredApiKey = Boolean(activeAccount?.pubgApiKey?.trim());
-    state.syncStatus = state.appStatus.syncStatus;
+    state.syncStatus = appStatus.syncStatus;
+    state.unsettledSummary = unsettledSummary;
+    state.activeRule = activeRule;
+    state.matches = matches;
+
+    const matchResults = await Promise.all(
+      matches.map(async (match) => {
+        try {
+          const players = await api.matches.getPlayers(match.matchId);
+          return buildDashboardRecentMatchRow({
+            match,
+            players,
+          });
+        } catch (error) {
+          console.error(`Failed to load dashboard detail for ${match.matchId}:`, error);
+          return null;
+        }
+      }),
+    );
+
+    const successfulResults = matchResults.filter((item): item is DashboardRecentMatchRow => item !== null);
+    const failedCount = matches.length - successfulResults.length;
     
-    // Update UI
+    state.dashboardRecentMatches = successfulResults;
+    if (
+      state.expandedDashboardMatchId
+      && !state.dashboardRecentMatches.some((item) => item.matchId === state.expandedDashboardMatchId)
+    ) {
+      state.expandedDashboardMatchId = null;
+    }
+
+    if (failedCount > 0) {
+      showToast(t('toast.dashboardRecentMatchesPartialFailed', { count: failedCount }), 'warning');
+    }
+
     updateDashboardStatus();
     updateSyncIndicator();
-    await loadPollingSettings();
-    
-    // Load recent matches
-    const matches = await api.matches.getAll(5, 0);
-    state.matches = matches;
-    renderRecentMatches();
-    
-    // Load teammates
-    const teammates = await api.teammates.getAll();
-    state.teammates = teammates;
-    renderTopTeammates();
-    
-    // Load active rule
-    const activeRule = await api.rules.getActive();
-    state.activeRule = activeRule;
     updateActiveRule();
     
-    // Load total point records
-    const pointRecords = await api.points.getAll(1, 0);
-    const totalPointsEl = document.getElementById('total-points');
-    if (totalPointsEl) {
-      totalPointsEl.textContent = pointRecords.length.toString();
-    }
+    // Render new dashboard components
+    renderDashboardUnsettledSummary();
+    renderDashboardRecentMatches();
   } catch (error) {
     console.error('Failed to load dashboard:', error);
     showToast(t('toast.dashboardLoadFailed'), 'error');
@@ -1040,62 +1127,7 @@ function applyPollingSettingsToForm() {
 
 function updateDashboardStatus() {
   if (!state.appStatus) return;
-  
-  const dbStatus = document.getElementById('db-status');
-  const runtimeStatus = document.getElementById('runtime-status');
-  const gameProcessStatus = document.getElementById('game-process-status');
-  const currentMatchStatus = document.getElementById('current-match-status');
-  const lastSync = document.getElementById('last-sync');
-  const systemBadge = document.getElementById('system-status-badge');
-  
-  if (dbStatus) {
-    dbStatus.textContent = state.appStatus.isDatabaseReady ? t('dashboard.connected') : t('dashboard.error');
-    dbStatus.className = 'status-value ' + (state.appStatus.isDatabaseReady ? 'text-success' : 'text-error');
-  }
-  
-  if (lastSync) {
-    lastSync.textContent = formatDateTime(state.syncStatus?.lastSyncAt ?? null);
-  }
 
-  if (runtimeStatus) {
-    runtimeStatus.textContent = getRuntimeHost() === 'tauri' ? 'Tauri 2' : 'Electron';
-    runtimeStatus.className = 'status-value text-success';
-  }
-
-  if (gameProcessStatus) {
-    const processState = state.gameProcessStatus?.state ?? 'not_running';
-
-    if (processState === 'running') {
-      gameProcessStatus.textContent = t('dashboard.running');
-      gameProcessStatus.className = 'status-value text-success';
-    } else if (processState === 'cooldown_polling') {
-      gameProcessStatus.textContent = t('dashboard.cooldownPolling');
-      gameProcessStatus.className = 'status-value text-warning';
-    } else {
-      gameProcessStatus.textContent = t('dashboard.notRunning');
-      gameProcessStatus.className = 'status-value text-muted';
-    }
-  }
-
-  if (currentMatchStatus) {
-    const currentMatchId = state.syncStatus?.currentMatchId;
-    currentMatchStatus.textContent = currentMatchId ? truncateMatchId(currentMatchId) : t('dashboard.idle');
-    currentMatchStatus.className = 'status-value ' + (currentMatchId ? 'text-success' : 'text-muted');
-  }
-
-  if (systemBadge) {
-    if (state.appStatus.isDatabaseReady && !state.syncStatus?.error && state.hasConfiguredApiKey) {
-      systemBadge.textContent = t('status.ready');
-      systemBadge.className = 'badge badge-success';
-    } else if (state.appStatus.isDatabaseReady) {
-      systemBadge.textContent = t('dashboard.attention');
-      systemBadge.className = 'badge badge-warning';
-    } else {
-      systemBadge.textContent = t('dashboard.error');
-      systemBadge.className = 'badge badge-error';
-    }
-  }
-  
   const versionEl = document.getElementById('app-version');
   if (versionEl) {
     versionEl.textContent = state.appStatus.version;
@@ -1136,65 +1168,124 @@ function updateActiveRule() {
   }
 }
 
-function renderRecentMatches() {
-  const emptyEl = document.getElementById('recent-matches-empty');
-  const tableEl = document.getElementById('recent-matches-table');
-  const listEl = document.getElementById('recent-matches-list');
-  
-  if (!emptyEl || !tableEl || !listEl) return;
-  
-  if (state.matches.length === 0) {
-    emptyEl.classList.remove('hidden');
-    tableEl.classList.add('hidden');
+function renderDashboardUnsettledSummary() {
+  const configEl = document.getElementById('dashboard-unsettled-config');
+  const playersEl = document.getElementById('dashboard-unsettled-players');
+  const ruleTextEl = document.getElementById('dashboard-unsettled-rule-text');
+  const countBadgeEl = document.getElementById('dashboard-unsettled-count-badge');
+
+  if (!configEl || !playersEl || !ruleTextEl || !countBadgeEl) return;
+
+  const unsettledSummary = state.unsettledSummary;
+
+  ruleTextEl.textContent = `${t('points.ruleName')}: ${unsettledSummary?.activeRuleName ?? '--'}`;
+  countBadgeEl.textContent = `${t('points.unsettledMatches')}: ${unsettledSummary?.unsettledMatchCount ?? 0}`;
+
+  if (!unsettledSummary || unsettledSummary.players.length === 0) {
+    configEl.innerHTML = `
+      <div class="dashboard-readonly-field">
+        <span class="dashboard-readonly-label">${escapeHtml(t('points.ruleName'))}</span>
+        <span class="dashboard-readonly-value">--</span>
+      </div>
+    `;
+    playersEl.innerHTML = `<div class="points-summary-empty text-muted">${escapeHtml(t('points.unsettledEmpty'))}</div>`;
     return;
   }
-  
-  emptyEl.classList.add('hidden');
-  tableEl.classList.remove('hidden');
-  
-  listEl.innerHTML = state.matches.map(match => `
-    <tr>
-      <td>${truncateMatchId(match.matchId)}</td>
-      <td>${match.mapName || t('common.unknown')}</td>
-      <td>${match.gameMode || t('common.unknown')}</td>
-      <td>${formatDate(match.playedAt)}</td>
-      <td><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></td>
-    </tr>
-  `).join('');
+
+  configEl.innerHTML = `
+    <div class="dashboard-readonly-field">
+      <span class="dashboard-readonly-label">${escapeHtml(t('points.ruleName'))}</span>
+      <span class="dashboard-readonly-value">${escapeHtml(unsettledSummary.activeRuleName ?? '--')}</span>
+    </div>
+  `;
+  playersEl.innerHTML = unsettledSummary.players.map((player) => {
+    const displayName = escapeHtml(player.displayNickname || player.pubgPlayerName);
+    const deltaClass = player.totalDelta > 0 ? 'positive' : player.totalDelta < 0 ? 'negative' : 'zero';
+    return `
+      <div class="points-summary-player-chip">
+        <div class="points-summary-player-name">${displayName}${player.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : ''}</div>
+        <div class="point-delta ${deltaClass}">${escapeHtml(formatSignedInteger(player.totalDelta))}</div>
+      </div>
+    `;
+  }).join('');
 }
 
-function renderTopTeammates() {
-  const emptyEl = document.getElementById('top-teammates-empty');
-  const listEl = document.getElementById('top-teammates-list');
-  
+function renderDashboardRecentMatches() {
+  const emptyEl = document.getElementById('dashboard-recent-empty');
+  const listEl = document.getElementById('dashboard-recent-list');
+
   if (!emptyEl || !listEl) return;
-  
-  const enabledTeammates = state.teammates
-    .filter(t => t.isPointsEnabled)
-    .sort((a, b) => b.totalPoints - a.totalPoints)
-    .slice(0, 4);
-  
-  if (enabledTeammates.length === 0) {
+
+  if (state.dashboardRecentMatches.length === 0) {
     emptyEl.classList.remove('hidden');
     listEl.classList.add('hidden');
     return;
   }
-  
+
   emptyEl.classList.add('hidden');
   listEl.classList.remove('hidden');
-  
-  listEl.innerHTML = enabledTeammates.map(teammate => `
-    <div class="teammate-card ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
-      <div class="card-title">${teammate.displayNickname || teammate.pubgPlayerName}</div>
-      <div class="card-subtitle">${teammate.pubgPlayerName}</div>
-      <div class="card-stats">
-          <div class="card-stat">
-            <div class="card-stat-value">${formatPoints(teammate.totalPoints)}</div>
-            <div class="card-stat-label">${t('points.totalPoints')}</div>
+
+  listEl.innerHTML = state.dashboardRecentMatches.map((match) => {
+    const isExpanded = state.expandedDashboardMatchId === match.matchId;
+    const self = match.selfPlayer;
+    const toggleLabel = isExpanded ? t('dashboard.collapseSquad') : t('dashboard.expandSquad');
+
+    return `
+      <div class="dashboard-match-row ${isExpanded ? 'expanded' : ''}" data-match-id="${match.matchId}" data-dashboard-match="true">
+        <button
+          type="button"
+          class="dashboard-match-header dashboard-match-trigger"
+          data-dashboard-match-toggle="${escapeHtml(match.matchId)}"
+          aria-expanded="${isExpanded ? 'true' : 'false'}"
+          aria-label="${escapeHtml(toggleLabel)}"
+        >
+          <div class="dashboard-match-info">
+            <span class="dashboard-match-map">${escapeHtml(match.mapName)}</span>
+            <span class="dashboard-match-mode">${escapeHtml(match.gameMode)}</span>
+            <span class="dashboard-match-date">${formatDateTime(match.playedAt)}</span>
+            <span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span>
           </div>
-        </div>
+          <div class="dashboard-match-stats">
+            <span class="badge badge-info">${escapeHtml(t('dashboard.selfStats'))}</span>
+            <div class="dashboard-stat">
+              <span class="dashboard-stat-value">${self.kills}</span>
+              <span class="dashboard-stat-label">${t('detail.kills')}</span>
+            </div>
+            <div class="dashboard-stat">
+              <span class="dashboard-stat-value">${formatInteger(self.damage)}</span>
+              <span class="dashboard-stat-label">${t('detail.damage')}</span>
+            </div>
+            <div class="dashboard-stat">
+              <span class="dashboard-stat-value">${self.assists}</span>
+              <span class="dashboard-stat-label">${t('detail.assists')}</span>
+            </div>
+            <div class="dashboard-stat">
+              <span class="dashboard-stat-value">${self.revives}</span>
+              <span class="dashboard-stat-label">${t('detail.revives')}</span>
+            </div>
+          </div>
+        </button>
+        ${isExpanded ? `
+          <div class="dashboard-squad-rows">
+            ${match.squad.map(player => `
+              <div class="dashboard-squad-row ${player.isSelf ? 'self' : ''}">
+                <span class="squad-player-name">${escapeHtml(player.displayName)}${player.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : ''}</span>
+                <span class="squad-player-stat">${player.kills} ${t('detail.kills')}</span>
+                <span class="squad-player-stat">${formatInteger(player.damage)} ${t('detail.damage')}</span>
+                <span class="squad-player-stat">${player.assists} ${t('detail.assists')}</span>
+                <span class="squad-player-stat">${player.revives} ${t('detail.revives')}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
       </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+function toggleDashboardMatch(matchId: string) {
+  state.expandedDashboardMatchId = state.expandedDashboardMatchId === matchId ? null : matchId;
+  renderDashboardRecentMatches();
 }
 
 // Teammates view
@@ -2326,10 +2417,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       void handleImmediateRecentMatchCheck();
     });
     
-    document.getElementById('btn-add-teammate')?.addEventListener('click', () => {
-      void handleManualTeammateSync();
-    });
-    
     document.getElementById('btn-new-teammate')?.addEventListener('click', () => {
       void handleManualTeammateSync();
     });
@@ -2417,6 +2504,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (target.dataset.pointsAction === 'settle') {
         void handleSettleMatch(matchId);
       }
+    });
+
+    document.querySelector('[data-dashboard-view-link="matches"]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      navigateTo('matches');
+    });
+
+    // Dashboard recent matches click handler for expanding/collapsing squad rows
+    document.getElementById('dashboard-recent-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLElement>('[data-dashboard-match-toggle]');
+      if (!target) {
+        return;
+      }
+
+      const matchId = target.dataset.dashboardMatchToggle;
+      if (!matchId) {
+        return;
+      }
+
+      toggleDashboardMatch(matchId);
     });
     
     document.getElementById('btn-empty-sync-matches')?.addEventListener('click', () => {
