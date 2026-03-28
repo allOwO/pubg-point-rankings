@@ -8,9 +8,14 @@ use rusqlite::Connection;
 use crate::{
     db::{connection::open_database, migrations::bootstrap_database},
     error::AppError,
+    repository::{
+        accounts::AccountsRepository, points::PointRecordsRepository, settings::SettingsRepository,
+    },
     runtime::game_state::GameProcessRuntime,
     services::sync::SyncRuntimeStatus,
 };
+
+const POINTS_IDENTITY_KEY_REPAIR_FLAG: &str = "points_identity_key_repaired_v6";
 
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
@@ -24,6 +29,7 @@ impl AppState {
     pub fn new() -> Result<Self, AppError> {
         let (connection, db_path) = open_database()?;
         bootstrap_database(&connection)?;
+        ensure_active_account_point_history_repaired(&connection)?;
 
         Ok(Self {
             db: Arc::new(Mutex::new(connection)),
@@ -33,4 +39,34 @@ impl AppState {
             sync_runtime_status: Arc::new(Mutex::new(SyncRuntimeStatus::default())),
         })
     }
+}
+
+pub fn ensure_active_account_point_history_repaired(
+    connection: &Connection,
+) -> Result<(), AppError> {
+    let Some(account) = AccountsRepository::new(connection).get_active()? else {
+        return Ok(());
+    };
+
+    ensure_account_point_history_repaired(connection, account.id, &account.self_player_name)
+}
+
+pub fn ensure_account_point_history_repaired(
+    connection: &Connection,
+    account_id: i64,
+    self_player_name: &str,
+) -> Result<(), AppError> {
+    let settings = SettingsRepository::new(connection);
+    let already_repaired =
+        settings.get_account_string(account_id, POINTS_IDENTITY_KEY_REPAIR_FLAG, "0")?;
+
+    if already_repaired == "1" {
+        return Ok(());
+    }
+
+    PointRecordsRepository::new(connection, account_id)
+        .repair_points_with_current_identities(self_player_name)?;
+    settings.set_account(account_id, POINTS_IDENTITY_KEY_REPAIR_FLAG, "1")?;
+
+    Ok(())
 }

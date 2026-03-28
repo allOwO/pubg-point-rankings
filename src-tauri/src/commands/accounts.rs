@@ -2,7 +2,7 @@ use serde::Deserialize;
 use tauri::State;
 
 use crate::{
-    app_state::AppState,
+    app_state::{ensure_account_point_history_repaired, AppState},
     error::{AppError, ErrorPayload},
     repository::accounts::{
         AccountDto, AccountsRepository, CreateAccountInput, UpdateAccountInput,
@@ -76,9 +76,14 @@ pub fn accounts_switch(state: State<'_, AppState>, id: i64) -> Result<AccountDto
         message: "database mutex is poisoned".to_string(),
     })?;
 
-    AccountsRepository::new(&connection)
+    let account = AccountsRepository::new(&connection)
         .switch_active(id)
-        .map_err(|error: AppError| error.into())
+        .map_err(ErrorPayload::from)?;
+
+    ensure_account_point_history_repaired(&connection, account.id, &account.self_player_name)
+        .map_err(ErrorPayload::from)?;
+
+    Ok(account)
 }
 
 #[tauri::command]

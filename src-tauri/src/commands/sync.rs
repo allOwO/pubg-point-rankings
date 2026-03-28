@@ -61,7 +61,7 @@ pub fn sync_start(state: State<'_, AppState>) -> Result<SyncStartResultDto, Erro
         message: "database mutex is poisoned".to_string(),
     })?;
 
-    let result = sync::sync_recent_match(&connection, &state.sync_runtime_status)
+    let result = sync::sync_recent_matches_batch(&connection, &state.sync_runtime_status, 12)
         .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
 
     Ok(SyncStartResultDto {

@@ -196,9 +196,9 @@ describe('aggregatePlayerStats', () => {
 
 describe('getTeammates', () => {
   const stats = [
-    { pubgAccountId: 'p1', pubgPlayerName: 'Player 1', damage: 0, kills: 0, revives: 0, teamId: 1, placement: 3 },
-    { pubgAccountId: 'p2', pubgPlayerName: 'Player 2', damage: 0, kills: 0, revives: 0, teamId: 1, placement: 3 },
-    { pubgAccountId: 'p3', pubgPlayerName: 'Player 3', damage: 0, kills: 0, revives: 0, teamId: 2, placement: 5 },
+    { pubgAccountId: 'p1', pubgPlayerName: 'Player 1', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: 3 },
+    { pubgAccountId: 'p2', pubgPlayerName: 'Player 2', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: 3 },
+    { pubgAccountId: 'p3', pubgPlayerName: 'Player 3', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 2, placement: 5 },
   ];
 
   test('returns teammates on same team', () => {
@@ -217,9 +217,9 @@ describe('getTeammates', () => {
 describe('filterRealPlayers', () => {
   test('filters out AI/bot players', () => {
     const stats = [
-      { pubgAccountId: 'player.steam.123', pubgPlayerName: 'Real Player', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
-      { pubgAccountId: 'ai.player.1', pubgPlayerName: 'AI Player', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
-      { pubgAccountId: 'bot_player_123', pubgPlayerName: 'Bot', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
+      { pubgAccountId: 'player.steam.123', pubgPlayerName: 'Real Player', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
+      { pubgAccountId: 'ai.player.1', pubgPlayerName: 'AI Player', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
+      { pubgAccountId: 'bot_player_123', pubgPlayerName: 'Bot', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
     ];
 
     const filtered = filterRealPlayers(stats);
@@ -230,8 +230,8 @@ describe('filterRealPlayers', () => {
 
 describe('findPlayerByName', () => {
   const stats = [
-    { pubgAccountId: 'p1', pubgPlayerName: 'PlayerOne', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
-    { pubgAccountId: 'p2', pubgPlayerName: 'PlayerTwo', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
+    { pubgAccountId: 'p1', pubgPlayerName: 'PlayerOne', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
+    { pubgAccountId: 'p2', pubgPlayerName: 'PlayerTwo', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
   ];
 
   test('finds player by exact name', () => {
@@ -254,7 +254,7 @@ describe('findPlayerByName', () => {
 
 describe('findPlayerByAccountId', () => {
   const stats = [
-    { pubgAccountId: 'account123', pubgPlayerName: 'Player 1', damage: 0, kills: 0, revives: 0, teamId: 1, placement: null },
+    { pubgAccountId: 'account123', pubgPlayerName: 'Player 1', damage: 0, kills: 0, assists: 0, revives: 0, teamId: 1, placement: null },
   ];
 
   test('finds player by account ID', () => {

@@ -194,13 +194,25 @@
                 <h1 data-i18n="friends.title">Friends</h1>
                 <p class="view-subtitle" data-i18n="friends.subtitle">Review saved friends and refresh them from recent matches</p>
               </div>
-              <button type="button" class="btn btn-primary" id="btn-new-teammate">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <title>Manual friend sync</title>
-                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
-                </svg>
-                <span data-i18n="settings.syncFriendsNow">Sync Friends Now</span>
-              </button>
+              <div class="view-actions">
+                <button type="button" class="btn btn-primary" id="btn-new-teammate">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <title>Add recent teammates</title>
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+                  </svg>
+                  <span data-i18n="friends.addRecentTeammates">Add Recent Teammates</span>
+                </button>
+                <button type="button" class="btn btn-secondary" id="btn-manual-friend">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <title>Add manual friend</title>
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="8.5" cy="7" r="4"/>
+                    <line x1="20" y1="8" x2="20" y2="14"/>
+                    <line x1="23" y1="11" x2="17" y2="11"/>
+                  </svg>
+                  <span data-i18n="friends.addManualFriend">Add Manual Friend</span>
+                </button>
+              </div>
             </div>
           </header>
 
@@ -217,8 +229,7 @@
               </div>
                <h3 data-i18n="friends.noFriendsTitle">No friends yet</h3>
                <p data-i18n="friends.noFriendsActionHint">Sync recent matches to discover and refresh friends for the active account.</p>
-               <button type="button" class="btn btn-primary" id="btn-empty-add-teammate" data-i18n="friends.addFirst">Add First Friend</button>
-            </div>
+              </div>
 
             <div class="teammates-list hidden" id="teammates-list"></div>
           </div>
@@ -333,6 +344,13 @@
                         <span id="unsettled-count-badge">0</span>
                       </p>
                     </div>
+                    <div class="form-row unsettled-summary-controls">
+                      <div class="form-group">
+                        <label for="unsettled-rule-select" data-i18n="points.recalculateRule">Settlement Rule</label>
+                        <select id="unsettled-rule-select" class="form-select"></select>
+                      </div>
+                      <button type="button" class="btn btn-secondary" id="btn-recalculate-unsettled" data-i18n="points.recalculateAction">Recalculate</button>
+                    </div>
                   </div>
                   <div class="points-summary-track" id="unsettled-players-container"></div>
                 </div>
@@ -358,10 +376,10 @@
                   <div class="action-buttons">
                     <button type="button" class="btn btn-secondary" id="btn-sync-friends-manual">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <title>Manual friend sync</title>
+                        <title>Add recent teammates</title>
                         <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 0 0 1-18.8 4.3"/>
                       </svg>
-                      <span data-i18n="settings.syncFriendsNow">Sync Friends Now</span>
+                      <span data-i18n="settings.addRecentTeammatesNow">Add Recent Teammates</span>
                     </button>
                     <button type="button" class="btn btn-danger" id="btn-logout">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -508,38 +526,51 @@
       <!-- Friend Modal -->
       <div id="modal-teammate" class="modal hidden">
         <div class="modal-header">
-          <h3 id="teammate-modal-title" data-i18n="modal.friend.add">Add Friend</h3>
+          <h3 id="teammate-modal-title" data-i18n="friends.addNickname">Add Nickname</h3>
           <button type="button" class="modal-close" data-close-modal>&times;</button>
         </div>
         <div class="modal-body">
           <form id="teammate-form">
             <input type="hidden" id="teammate-id">
             <div class="form-group">
-              <label for="teammate-name" data-i18n="modal.friendId">Friend ID / Player Name *</label>
-              <input type="text" id="teammate-name" class="form-input" data-i18n-placeholder="modal.friendIdPlaceholder" placeholder="Enter a PUBG player name" required>
-            </div>
-            <div class="form-group">
-              <label for="teammate-platform" data-i18n="common.platform">Platform *</label>
-              <select id="teammate-platform" class="form-select" required>
-                 <option value="steam" data-i18n="platform.steam">Steam</option>
-                 <option value="xbox" data-i18n="platform.xbox">Xbox</option>
-                 <option value="psn" data-i18n="platform.psn">PlayStation</option>
-                 <option value="kakao" data-i18n="platform.kakao">Kakao</option>
-              </select>
-            </div>
-            <div class="form-group">
               <label for="teammate-nickname" data-i18n="modal.savedNickname">Saved Nickname</label>
               <input type="text" id="teammate-nickname" class="form-input" data-i18n-placeholder="modal.savedNicknamePlaceholder" placeholder="Optional local nickname">
-            </div>
-            <div class="form-group form-checkbox" id="teammate-enabled-group">
-              <input type="checkbox" id="teammate-enabled" class="form-checkbox-input" checked>
-              <label for="teammate-enabled" data-i18n="modal.enablePointTracking">Enable point tracking</label>
             </div>
             <div class="form-actions">
               <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
               <button type="submit" class="btn btn-primary" data-i18n="modal.save">Save</button>
             </div>
           </form>
+        </div>
+      </div>
+
+      <div id="modal-manual-friend" class="modal hidden">
+        <div class="modal-header">
+          <h3 data-i18n="friends.addManualFriend">Add Manual Friend</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="manual-friend-form">
+            <div class="form-group">
+              <label for="manual-friend-name" data-i18n="modal.friendId">Friend ID / Player Name *</label>
+              <input type="text" id="manual-friend-name" class="form-input" data-i18n-placeholder="modal.friendIdPlaceholder" placeholder="Enter a PUBG player name" required>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" data-close-modal data-i18n="modal.cancel">Cancel</button>
+              <button type="submit" class="btn btn-primary" data-i18n="modal.confirm">Confirm</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="modal-recent-teammates" class="modal modal-small hidden">
+        <div class="modal-header">
+          <h3 data-i18n="friends.addRecentTeammates">Add Recent Teammates</h3>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="recent-teammates-empty" class="empty-hint" data-i18n="friends.loadingRecentTeammates">Loading recent teammates...</div>
+          <div id="recent-teammates-list" class="recent-teammates-list hidden"></div>
         </div>
       </div>
 
@@ -617,17 +648,6 @@
               </button>
             </div>
           </form>
-        </div>
-      </div>
-
-      <!-- Match Detail Modal -->
-      <div id="modal-match-detail" class="modal modal-large hidden">
-        <div class="modal-header">
-          <h3 data-i18n="modal.matchDetails">Match Details</h3>
-          <button type="button" class="modal-close" data-close-modal>&times;</button>
-        </div>
-        <div class="modal-body">
-          <div id="match-detail-content"></div>
         </div>
       </div>
 

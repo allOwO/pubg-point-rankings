@@ -31,6 +31,7 @@ interface MatchPlayerRow {
   team_id: number | null;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   placement: number | null;
   is_self: number;
@@ -69,6 +70,7 @@ function mapRowToMatchPlayer(row: MatchPlayerRow): MatchPlayer {
     teamId: row.team_id,
     damage: row.damage,
     kills: row.kills,
+    assists: row.assists,
     revives: row.revives,
     placement: row.placement,
     isSelf: row.is_self === 1,
@@ -98,6 +100,7 @@ export interface CreateMatchPlayerInput {
   teamId?: number | null;
   damage?: number;
   kills?: number;
+  assists?: number;
   revives?: number;
   placement?: number | null;
   isSelf?: boolean;
@@ -260,9 +263,9 @@ export class MatchesRepository {
   createPlayer(input: CreateMatchPlayerInput): MatchPlayer {
     const result = this.db.prepare(
        `INSERT INTO match_players 
-        (match_id, teammate_id, pubg_account_id, pubg_player_name, display_nickname_snapshot, team_id, 
-         damage, kills, revives, placement, is_self, is_points_enabled_snapshot, points, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
+         (match_id, teammate_id, pubg_account_id, pubg_player_name, display_nickname_snapshot, team_id, 
+          damage, kills, assists, revives, placement, is_self, is_points_enabled_snapshot, points, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`
     ).run(
       input.matchId,
       input.teammateId ?? null,
@@ -272,6 +275,7 @@ export class MatchesRepository {
       input.teamId ?? null,
       input.damage ?? 0,
       input.kills ?? 0,
+      input.assists ?? 0,
       input.revives ?? 0,
       input.placement ?? null,
       input.isSelf ? 1 : 0,
@@ -289,7 +293,7 @@ export class MatchesRepository {
   /**
    * Update match player stats
    */
-  updatePlayerStats(playerId: number, stats: Partial<Pick<MatchPlayer, 'damage' | 'kills' | 'revives' | 'placement' | 'points'>>): void {
+  updatePlayerStats(playerId: number, stats: Partial<Pick<MatchPlayer, 'damage' | 'kills' | 'assists' | 'revives' | 'placement' | 'points'>>): void {
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
 
@@ -300,6 +304,10 @@ export class MatchesRepository {
     if (stats.kills !== undefined) {
       sets.push('kills = ?');
       params.push(stats.kills);
+    }
+    if (stats.assists !== undefined) {
+      sets.push('assists = ?');
+      params.push(stats.assists);
     }
     if (stats.revives !== undefined) {
       sets.push('revives = ?');

@@ -226,6 +226,7 @@ export class SyncService {
             displayNicknameSnapshot: teammate?.displayNickname ?? calc.pubgPlayerName,
             damage: calc.damage,
             kills: calc.kills,
+            assists: calc.assists,
             revives: calc.revives,
             isSelf: calc.pubgAccountId === selfAccountId,
             isPointsEnabledSnapshot: calc.isPointsEnabled,

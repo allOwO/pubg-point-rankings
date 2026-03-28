@@ -23,6 +23,12 @@ pub struct SettlePointMatchesInput {
     end_match_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RecalculateUnsettledPointsInput {
+    #[serde(rename = "ruleId")]
+    rule_id: i64,
+}
+
 #[tauri::command]
 pub fn points_get_all(
     state: State<'_, AppState>,
@@ -89,6 +95,23 @@ pub fn points_get_unsettled_summary(
 
     PointRecordsRepository::new(&connection, account.id)
         .get_unsettled_summary()
+        .map_err(|error: AppError| error.into())
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn points_recalculate_unsettled(
+    state: State<'_, AppState>,
+    input: RecalculateUnsettledPointsInput,
+) -> Result<crate::repository::points::RecalculateUnsettledPointsResultDto, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
+
+    PointRecordsRepository::new(&connection, account.id)
+        .recalculate_unsettled_with_rule(input.rule_id)
         .map_err(|error: AppError| error.into())
 }
 

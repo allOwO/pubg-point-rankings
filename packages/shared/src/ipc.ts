@@ -7,6 +7,7 @@
 
 import type {
   AppSetting,
+  RecentTeammateCandidate,
   Teammate,
   Match,
   MatchPlayer,
@@ -37,6 +38,8 @@ export const IPC_CHANNELS = {
   TEAMMATES_CREATE: 'teammates:create',
   TEAMMATES_UPDATE: 'teammates:update',
   TEAMMATES_GET_HISTORY: 'teammates:getHistory',
+  TEAMMATES_GET_RECENT_CANDIDATES: 'teammates:getRecentCandidates',
+  TEAMMATES_DELETE: 'teammates:delete',
   
   // Point Rules
   RULES_GET_ALL: 'rules:getAll',
@@ -94,6 +97,10 @@ export type TeammatesGetHistoryResponse = {
   records: PointRecord[];
   totalMatches: number;
 };
+export type TeammatesGetRecentCandidatesRequest = void;
+export type TeammatesGetRecentCandidatesResponse = RecentTeammateCandidate[];
+export type TeammatesDeleteRequest = { id: number };
+export type TeammatesDeleteResponse = void;
 
 // Rules
 export type RulesGetAllRequest = void;
@@ -181,6 +188,14 @@ export interface IpcHandlerMap {
   [IPC_CHANNELS.TEAMMATES_GET_HISTORY]: {
     request: TeammatesGetHistoryRequest;
     response: TeammatesGetHistoryResponse;
+  };
+  [IPC_CHANNELS.TEAMMATES_GET_RECENT_CANDIDATES]: {
+    request: TeammatesGetRecentCandidatesRequest;
+    response: TeammatesGetRecentCandidatesResponse;
+  };
+  [IPC_CHANNELS.TEAMMATES_DELETE]: {
+    request: TeammatesDeleteRequest;
+    response: TeammatesDeleteResponse;
   };
   
   // Rules

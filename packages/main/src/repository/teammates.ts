@@ -27,6 +27,7 @@ function mapRowToTeammate(row: TeammateRow): Teammate {
     pubgAccountId: row.pubg_account_id,
     pubgPlayerName: row.pubg_player_name,
     displayNickname: row.display_nickname,
+    isFriend: false,
     isPointsEnabled: row.is_points_enabled === 1,
     totalPoints: row.total_points,
     lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at) : null,

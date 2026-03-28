@@ -57,3 +57,20 @@ pub fn matches_get_players(
         .get_players(&match_id)
         .map_err(|error: AppError| error.into())
 }
+
+#[tauri::command(rename_all = "camelCase")]
+pub fn matches_get_detail(
+    state: State<'_, AppState>,
+    match_id: String,
+) -> Result<Option<crate::repository::matches::MatchDetailDto>, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
+
+    MatchesRepository::new(&connection, account.id)
+        .get_detail(&match_id)
+        .map_err(|error: AppError| error.into())
+}

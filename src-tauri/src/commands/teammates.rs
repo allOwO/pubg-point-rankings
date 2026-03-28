@@ -6,9 +6,11 @@ use crate::{
     error::{AppError, ErrorPayload},
     repository::{
         accounts::AccountsRepository,
-        teammates::{CreateTeammateInput, TeammatesRepository, UpdateTeammateInput},
+        teammates::{
+            CreateTeammateInput, RecentTeammateCandidateDto, TeammatesRepository,
+            UpdateTeammateInput,
+        },
     },
-    services::sync,
 };
 
 #[derive(Debug, Deserialize)]
@@ -41,15 +43,6 @@ pub struct TeammateHistoryResponse {
     total_matches: i64,
 }
 
-#[derive(Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManualTeammateSyncResponse {
-    success: bool,
-    scanned_matches: usize,
-    synced_teammates: usize,
-    error: Option<String>,
-}
-
 #[tauri::command]
 pub fn teammates_get_all(
     state: State<'_, AppState>,
@@ -63,6 +56,22 @@ pub fn teammates_get_all(
 
     TeammatesRepository::new(&connection, account.id)
         .get_all()
+        .map_err(|error: AppError| error.into())
+}
+
+#[tauri::command]
+pub fn teammates_get_recent_candidates(
+    state: State<'_, AppState>,
+) -> Result<Vec<RecentTeammateCandidateDto>, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
+
+    TeammatesRepository::new(&connection, account.id)
+        .get_recent_candidates(10)
         .map_err(|error: AppError| error.into())
 }
 
@@ -164,20 +173,15 @@ pub fn teammates_get_history(
 }
 
 #[tauri::command]
-pub fn teammates_sync_manual(
-    state: State<'_, AppState>,
-) -> Result<ManualTeammateSyncResponse, ErrorPayload> {
+pub fn teammates_delete(state: State<'_, AppState>, id: i64) -> Result<(), ErrorPayload> {
     let connection = state.db.lock().map_err(|_| ErrorPayload {
         message: "database mutex is poisoned".to_string(),
     })?;
+    let account = AccountsRepository::new(&connection)
+        .require_active()
+        .map_err(ErrorPayload::from)?;
 
-    let result = sync::sync_recent_teammates(&connection, 10)
-        .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
-
-    Ok(ManualTeammateSyncResponse {
-        success: result.success,
-        scanned_matches: result.scanned_matches,
-        synced_teammates: result.synced_teammates,
-        error: result.error,
-    })
+    TeammatesRepository::new(&connection, account.id)
+        .delete(id)
+        .map_err(|error: AppError| error.into())
 }

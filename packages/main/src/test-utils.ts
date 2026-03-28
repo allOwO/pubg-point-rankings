@@ -14,6 +14,7 @@ export function createMockPlayerStats(overrides: Partial<PlayerStats> = {}): Pla
     pubgPlayerName: 'TestPlayer',
     damage: 100,
     kills: 2,
+    assists: 0,
     revives: 1,
     teamId: 1,
     placement: 5,

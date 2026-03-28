@@ -52,6 +52,7 @@ export function calculatePlayerPoints(
     pubgPlayerName: player.pubgPlayerName,
     damage: player.damage,
     kills: player.kills,
+    assists: player.assists,
     revives: player.revives,
     damagePoints: applyRounding(damagePoints, rule.roundingMode),
     killPoints,

@@ -91,6 +91,7 @@ interface PlayerStatsAccumulator {
   teamId: number | null;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   placement: number | null;
 }
@@ -122,11 +123,12 @@ export function aggregatePlayerStats(events: TelemetryData[]): PlayerStats[] {
             accountId: char.accountId,
             name: char.name,
             teamId: char.teamId,
-            damage: 0,
-            kills: 0,
-            revives: 0,
-            placement: null,
-          });
+        damage: 0,
+        kills: 0,
+        assists: 0,
+        revives: 0,
+        placement: null,
+      });
         }
       }
     }
@@ -147,6 +149,7 @@ export function aggregatePlayerStats(events: TelemetryData[]): PlayerStats[] {
               teamId: null,
               damage: 0,
               kills: 0,
+              assists: 0,
               revives: 0,
               placement: null,
             };
@@ -172,6 +175,7 @@ export function aggregatePlayerStats(events: TelemetryData[]): PlayerStats[] {
               teamId: null,
               damage: 0,
               kills: 0,
+              assists: 0,
               revives: 0,
               placement: null,
             };
@@ -194,6 +198,7 @@ export function aggregatePlayerStats(events: TelemetryData[]): PlayerStats[] {
               teamId: null,
               damage: 0,
               kills: 0,
+              assists: 0,
               revives: 0,
               placement: null,
             };
@@ -223,6 +228,7 @@ export function aggregatePlayerStats(events: TelemetryData[]): PlayerStats[] {
     pubgPlayerName: acc.name,
     damage: Math.round(acc.damage * 10) / 10, // Round to 1 decimal place
     kills: acc.kills,
+    assists: acc.assists,
     revives: acc.revives,
     teamId: acc.teamId,
     placement: acc.placement,
