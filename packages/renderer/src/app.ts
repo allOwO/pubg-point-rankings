@@ -3027,7 +3027,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       toggleDashboardMatch(matchId);
     });
-
     document.getElementById('btn-empty-sync-matches')?.addEventListener('click', () => {
       openModal('modal-sync');
     });
