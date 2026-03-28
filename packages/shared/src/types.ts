@@ -35,11 +35,20 @@ export interface Teammate {
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
+  isFriend: boolean;
   isPointsEnabled: boolean;
   totalPoints: number;
   lastSeenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface RecentTeammateCandidate {
+  platform: Platform;
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  lastTeammateAt: Date;
+  isFriend: boolean;
 }
 
 export interface Match {
@@ -69,12 +78,91 @@ export interface MatchPlayer {
   teamId: number | null;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   placement: number | null;
   isSelf: boolean;
   isPointsEnabledSnapshot: boolean;
   points: number;
   createdAt: Date;
+}
+
+export interface MatchDamageEvent {
+  id: number;
+  accountId: number;
+  matchId: string;
+  attackerAccountId: string | null;
+  attackerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  damage: number;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: Date | null;
+  createdAt: Date;
+}
+
+export interface MatchKillEvent {
+  id: number;
+  accountId: number;
+  matchId: string;
+  killerAccountId: string | null;
+  killerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  assistantAccountId: string | null;
+  assistantName: string | null;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: Date | null;
+  createdAt: Date;
+}
+
+export interface MatchKnockEvent {
+  id: number;
+  accountId: number;
+  matchId: string;
+  attackerAccountId: string | null;
+  attackerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: Date | null;
+  createdAt: Date;
+}
+
+export interface MatchReviveEvent {
+  id: number;
+  accountId: number;
+  matchId: string;
+  reviverAccountId: string | null;
+  reviverName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  eventAt: Date | null;
+  createdAt: Date;
+}
+
+export interface MatchPlayerWeaponStat {
+  id: number;
+  accountId: number;
+  matchId: string;
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  weaponName: string;
+  totalDamage: number;
+  createdAt: Date;
+}
+
+export interface MatchDetail {
+  match: Match;
+  players: MatchPlayer[];
+  damageEvents: MatchDamageEvent[];
+  killEvents: MatchKillEvent[];
+  knockEvents: MatchKnockEvent[];
+  reviveEvents: MatchReviveEvent[];
+  weaponStats: MatchPlayerWeaponStat[];
 }
 
 export interface PointRule {
@@ -112,6 +200,7 @@ export interface PlayerStats {
   pubgPlayerName: string;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   teamId: number | null;
   placement: number | null;
@@ -122,6 +211,7 @@ export interface CalculatedPoints {
   pubgPlayerName: string;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   damagePoints: number;
   killPoints: number;
@@ -208,8 +298,8 @@ export interface UnsettledPlayerSummary {
 }
 
 export interface UnsettledBattleSummary {
+  ruleId: number | null;
   activeRuleName: string | null;
   unsettledMatchCount: number;
   players: UnsettledPlayerSummary[];
 }
-

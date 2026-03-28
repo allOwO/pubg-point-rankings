@@ -1,6 +1,9 @@
 use rusqlite::{params, Connection};
 
-use crate::{error::AppError, repository::rules::PointRulesRepository};
+use crate::{
+    error::AppError, parser::telemetry::display_damage_causer_name,
+    repository::rules::PointRulesRepository,
+};
 
 use super::schema::{DEFAULT_DATA_SQL, INITIAL_SCHEMA_SQL, SCHEMA_VERSION};
 
@@ -541,6 +544,235 @@ fn migrate_v4_to_v5(connection: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+fn migrate_v5_to_v6(connection: &Connection) -> Result<(), AppError> {
+    if !column_exists(connection, "teammates", "is_friend")? {
+        connection.execute(
+            "ALTER TABLE teammates ADD COLUMN is_friend INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0, 1))",
+            [],
+        )?;
+    }
+
+    connection.execute_batch(
+        r#"
+        UPDATE teammates SET is_friend = 0;
+
+        UPDATE teammates
+        SET last_seen_at = (
+          SELECT MAX(m.played_at)
+          FROM match_players mp
+          INNER JOIN matches m
+            ON m.account_id = mp.account_id
+           AND m.match_id = mp.match_id
+          INNER JOIN match_players self_mp
+            ON self_mp.account_id = mp.account_id
+           AND self_mp.match_id = mp.match_id
+           AND self_mp.is_self = 1
+          WHERE mp.account_id = teammates.account_id
+            AND mp.teammate_id = teammates.id
+            AND mp.is_self = 0
+            AND mp.team_id IS NOT NULL
+            AND mp.team_id = self_mp.team_id
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_teammates_account_is_friend ON teammates(account_id, is_friend);
+        "#,
+    )?;
+
+    Ok(())
+}
+
+fn migrate_v6_to_v7(connection: &Connection) -> Result<(), AppError> {
+    if !column_exists(connection, "match_players", "assists")? {
+        connection.execute(
+            "ALTER TABLE match_players ADD COLUMN assists INTEGER NOT NULL DEFAULT 0 CHECK (assists >= 0)",
+            [],
+        )?;
+    }
+
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS match_damage_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          attacker_account_id TEXT,
+          attacker_name TEXT,
+          victim_account_id TEXT,
+          victim_name TEXT,
+          damage REAL NOT NULL DEFAULT 0 CHECK (damage >= 0),
+          damage_type_category TEXT,
+          damage_causer_name TEXT,
+          event_at DATETIME,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS match_kill_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          killer_account_id TEXT,
+          killer_name TEXT,
+          victim_account_id TEXT,
+          victim_name TEXT,
+          assistant_account_id TEXT,
+          assistant_name TEXT,
+          damage_type_category TEXT,
+          damage_causer_name TEXT,
+          event_at DATETIME,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS match_revive_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          reviver_account_id TEXT,
+          reviver_name TEXT,
+          victim_account_id TEXT,
+          victim_name TEXT,
+          event_at DATETIME,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS match_player_weapon_stats (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          pubg_account_id TEXT,
+          pubg_player_name TEXT NOT NULL,
+          weapon_name TEXT NOT NULL,
+          total_damage REAL NOT NULL DEFAULT 0 CHECK (total_damage >= 0),
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_matches_account_match_end_at ON matches(account_id, match_end_at DESC, played_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_match_damage_events_account_match_id ON match_damage_events(account_id, match_id);
+        CREATE INDEX IF NOT EXISTS idx_match_kill_events_account_match_id ON match_kill_events(account_id, match_id);
+        CREATE INDEX IF NOT EXISTS idx_match_revive_events_account_match_id ON match_revive_events(account_id, match_id);
+        CREATE INDEX IF NOT EXISTS idx_match_player_weapon_stats_account_match_id ON match_player_weapon_stats(account_id, match_id);
+        "#,
+    )?;
+
+    Ok(())
+}
+
+fn migrate_v7_to_v8(connection: &Connection) -> Result<(), AppError> {
+    connection.execute_batch("SELECT 1;")?;
+    Ok(())
+}
+
+fn rewrite_damage_causer_display_names(connection: &Connection) -> Result<(), AppError> {
+    let damage_event_rows = {
+        let mut statement = connection.prepare(
+            "SELECT id, damage_type_category, damage_causer_name FROM match_damage_events",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    for (id, damage_type_category, damage_causer_name) in damage_event_rows {
+        let Some(raw_value) = damage_causer_name.as_deref() else {
+            continue;
+        };
+        let display_name =
+            display_damage_causer_name(Some(raw_value), damage_type_category.as_deref());
+        if display_name != raw_value {
+            connection.execute(
+                "UPDATE match_damage_events SET damage_causer_name = ?1 WHERE id = ?2",
+                params![display_name, id],
+            )?;
+        }
+    }
+
+    let kill_event_rows = {
+        let mut statement = connection.prepare(
+            "SELECT id, damage_type_category, damage_causer_name FROM match_kill_events",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    for (id, damage_type_category, damage_causer_name) in kill_event_rows {
+        let Some(raw_value) = damage_causer_name.as_deref() else {
+            continue;
+        };
+        let display_name =
+            display_damage_causer_name(Some(raw_value), damage_type_category.as_deref());
+        if display_name != raw_value {
+            connection.execute(
+                "UPDATE match_kill_events SET damage_causer_name = ?1 WHERE id = ?2",
+                params![display_name, id],
+            )?;
+        }
+    }
+
+    let weapon_rows = {
+        let mut statement =
+            connection.prepare("SELECT id, weapon_name FROM match_player_weapon_stats")?;
+        let rows = statement.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    for (id, weapon_name) in weapon_rows {
+        let display_name = display_damage_causer_name(Some(weapon_name.as_str()), None);
+        if display_name != weapon_name {
+            connection.execute(
+                "UPDATE match_player_weapon_stats SET weapon_name = ?1 WHERE id = ?2",
+                params![display_name, id],
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn migrate_v8_to_v9(connection: &Connection) -> Result<(), AppError> {
+    rewrite_damage_causer_display_names(connection)
+}
+
+fn migrate_v9_to_v10(connection: &Connection) -> Result<(), AppError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS match_knock_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          attacker_account_id TEXT,
+          attacker_name TEXT,
+          victim_account_id TEXT,
+          victim_name TEXT,
+          damage_type_category TEXT,
+          damage_causer_name TEXT,
+          event_at DATETIME,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_match_knock_events_account_match_id ON match_knock_events(account_id, match_id);
+        "#,
+    )?;
+
+    Ok(())
+}
+
 pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
     let version = current_version(connection)?;
 
@@ -564,6 +796,26 @@ pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
             migrate_v4_to_v5(connection)?;
             set_version(connection, 5)?;
         }
+        if version < 6 {
+            migrate_v5_to_v6(connection)?;
+            set_version(connection, 6)?;
+        }
+        if version < 7 {
+            migrate_v6_to_v7(connection)?;
+            set_version(connection, 7)?;
+        }
+        if version < 8 {
+            migrate_v7_to_v8(connection)?;
+            set_version(connection, 8)?;
+        }
+        if version < 9 {
+            migrate_v8_to_v9(connection)?;
+            set_version(connection, 9)?;
+        }
+        if version < 10 {
+            migrate_v9_to_v10(connection)?;
+            set_version(connection, 10)?;
+        }
     }
 
     connection.execute_batch(DEFAULT_DATA_SQL)?;
@@ -576,9 +828,10 @@ pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::Connection;
+    use rusqlite::{params, Connection};
 
     use super::bootstrap_database;
+    use crate::db::schema::INITIAL_SCHEMA_SQL;
 
     const LEGACY_SCHEMA_SQL: &str = r#"
     CREATE TABLE app_settings (
@@ -759,9 +1012,156 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("count migrated rules");
+        let assists_column_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('match_players') WHERE name = 'assists'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("match_players assists column exists");
+        let damage_events_table_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'match_damage_events'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("match_damage_events table exists");
 
         assert_eq!(account_name, "LegacyPlayer Account");
         assert_eq!(last_sync_at, "2026-01-01T00:00:00Z");
         assert_eq!(rules_with_account, 1);
+        assert_eq!(assists_column_exists, 1);
+        assert_eq!(damage_events_table_exists, 1);
+    }
+
+    #[test]
+    fn bootstrap_rewrites_legacy_damage_causer_values_for_existing_rows() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        connection
+            .execute_batch(INITIAL_SCHEMA_SQL)
+            .expect("create current schema");
+        connection
+            .execute(
+                "UPDATE schema_version SET version = 8, applied_at = CURRENT_TIMESTAMP",
+                [],
+            )
+            .expect("downgrade schema version");
+        connection
+            .execute(
+                "INSERT INTO accounts (id, account_name, self_player_name, self_platform, pubg_api_key, is_active, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                params![1, "Test Account", "self", "steam", "test-key"],
+            )
+            .expect("insert account");
+        connection
+            .execute(
+                "INSERT INTO matches (account_id, match_id, platform, map_name, game_mode, played_at, match_start_at, match_end_at, telemetry_url, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                params![
+                    1,
+                    "match-1",
+                    "steam",
+                    "Erangel",
+                    "squad",
+                    "2026-01-01T10:00:00Z",
+                    "2026-01-01T10:00:00Z",
+                    "2026-01-01T10:30:00Z",
+                    Option::<String>::None,
+                    "ready"
+                ],
+            )
+            .expect("insert match");
+        connection
+            .execute(
+                "INSERT INTO match_damage_events (account_id, match_id, attacker_account_id, attacker_name, victim_account_id, victim_name, damage, damage_type_category, damage_causer_name, event_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, CURRENT_TIMESTAMP)",
+                params![1, "match-1", "a1", "self", "a2", "enemy", 35.0, "Gun", "WeapMk12_C", "2026-01-01T10:05:00Z"],
+            )
+            .expect("insert raw damage event");
+        connection
+            .execute(
+                "INSERT INTO match_kill_events (account_id, match_id, killer_account_id, killer_name, victim_account_id, victim_name, assistant_account_id, assistant_name, damage_type_category, damage_causer_name, event_at, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, CURRENT_TIMESTAMP)",
+                params![1, "match-1", "a1", "self", "a2", "enemy", Option::<String>::None, Option::<String>::None, "Vehicle Crash", "Uaz_A_01_C", "2026-01-01T10:06:00Z"],
+            )
+            .expect("insert raw kill event");
+        connection
+            .execute(
+                "INSERT INTO match_player_weapon_stats (account_id, match_id, pubg_account_id, pubg_player_name, weapon_name, total_damage, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, CURRENT_TIMESTAMP)",
+                params![1, "match-1", "a1", "self", "WeapMk12_C", 35.0],
+            )
+            .expect("insert raw weapon stat");
+
+        bootstrap_database(&connection).expect("migrate legacy display names");
+
+        let schema_version: i64 = connection
+            .query_row(
+                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select schema version");
+        let damage_causer_name: String = connection
+            .query_row(
+                "SELECT damage_causer_name FROM match_damage_events WHERE account_id = 1 AND match_id = 'match-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select damage event name");
+        let kill_damage_causer_name: String = connection
+            .query_row(
+                "SELECT damage_causer_name FROM match_kill_events WHERE account_id = 1 AND match_id = 'match-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select kill event name");
+        let weapon_name: String = connection
+            .query_row(
+                "SELECT weapon_name FROM match_player_weapon_stats WHERE account_id = 1 AND match_id = 'match-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select weapon name");
+
+        assert_eq!(schema_version, 10);
+        assert_eq!(damage_causer_name, "Mk12");
+        assert_eq!(kill_damage_causer_name, "UAZ (open top)");
+        assert_eq!(weapon_name, "Mk12");
+    }
+
+    #[test]
+    fn bootstrap_adds_match_knock_events_for_v9_databases() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        connection
+            .execute_batch(INITIAL_SCHEMA_SQL)
+            .expect("create current schema");
+        connection
+            .execute(
+                "UPDATE schema_version SET version = 9, applied_at = CURRENT_TIMESTAMP",
+                [],
+            )
+            .expect("downgrade schema version");
+
+        bootstrap_database(&connection).expect("migrate v9 db");
+
+        let knock_events_table_exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'match_knock_events'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("match_knock_events table exists");
+
+        let schema_version: i64 = connection
+            .query_row(
+                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select schema version");
+
+        assert_eq!(knock_events_table_exists, 1);
+        assert_eq!(schema_version, 10);
     }
 }

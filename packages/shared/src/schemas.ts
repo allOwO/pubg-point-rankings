@@ -38,11 +38,20 @@ export const TeammateSchema = z.object({
   pubgAccountId: z.string().nullable(),
   pubgPlayerName: z.string(),
   displayNickname: z.string().nullable(),
+  isFriend: z.boolean(),
   isPointsEnabled: z.boolean(),
   totalPoints: z.number().int(),
   lastSeenAt: z.date().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
+});
+
+export const RecentTeammateCandidateSchema = z.object({
+  platform: PlatformSchema,
+  pubgAccountId: z.string().nullable(),
+  pubgPlayerName: z.string(),
+  lastTeammateAt: z.date(),
+  isFriend: z.boolean(),
 });
 
 export const MatchSchema = z.object({
@@ -72,12 +81,91 @@ export const MatchPlayerSchema = z.object({
   teamId: z.number().nullable(),
   damage: z.number(),
   kills: z.number().int(),
+  assists: z.number().int().optional(),
   revives: z.number().int(),
   placement: z.number().int().nullable(),
   isSelf: z.boolean(),
   isPointsEnabledSnapshot: z.boolean(),
   points: z.number().int(),
   createdAt: z.date(),
+});
+
+export const MatchDamageEventSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  matchId: z.string(),
+  attackerAccountId: z.string().nullable(),
+  attackerName: z.string().nullable(),
+  victimAccountId: z.string().nullable(),
+  victimName: z.string().nullable(),
+  damage: z.number(),
+  damageTypeCategory: z.string().nullable(),
+  damageCauserName: z.string().nullable(),
+  eventAt: z.date().nullable(),
+  createdAt: z.date(),
+});
+
+export const MatchKillEventSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  matchId: z.string(),
+  killerAccountId: z.string().nullable(),
+  killerName: z.string().nullable(),
+  victimAccountId: z.string().nullable(),
+  victimName: z.string().nullable(),
+  assistantAccountId: z.string().nullable(),
+  assistantName: z.string().nullable(),
+  damageTypeCategory: z.string().nullable(),
+  damageCauserName: z.string().nullable(),
+  eventAt: z.date().nullable(),
+  createdAt: z.date(),
+});
+
+export const MatchKnockEventSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  matchId: z.string(),
+  attackerAccountId: z.string().nullable(),
+  attackerName: z.string().nullable(),
+  victimAccountId: z.string().nullable(),
+  victimName: z.string().nullable(),
+  damageTypeCategory: z.string().nullable(),
+  damageCauserName: z.string().nullable(),
+  eventAt: z.date().nullable(),
+  createdAt: z.date(),
+});
+
+export const MatchReviveEventSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  matchId: z.string(),
+  reviverAccountId: z.string().nullable(),
+  reviverName: z.string().nullable(),
+  victimAccountId: z.string().nullable(),
+  victimName: z.string().nullable(),
+  eventAt: z.date().nullable(),
+  createdAt: z.date(),
+});
+
+export const MatchPlayerWeaponStatSchema = z.object({
+  id: z.number(),
+  accountId: z.number(),
+  matchId: z.string(),
+  pubgAccountId: z.string().nullable(),
+  pubgPlayerName: z.string(),
+  weaponName: z.string(),
+  totalDamage: z.number(),
+  createdAt: z.date(),
+});
+
+export const MatchDetailSchema = z.object({
+  match: MatchSchema,
+  players: z.array(MatchPlayerSchema),
+  damageEvents: z.array(MatchDamageEventSchema),
+  killEvents: z.array(MatchKillEventSchema),
+  knockEvents: z.array(MatchKnockEventSchema),
+  reviveEvents: z.array(MatchReviveEventSchema),
+  weaponStats: z.array(MatchPlayerWeaponStatSchema),
 });
 
 export const PointRuleSchema = z.object({
@@ -115,6 +203,7 @@ export const PlayerStatsSchema = z.object({
   pubgPlayerName: z.string(),
   damage: z.number(),
   kills: z.number().int(),
+  assists: z.number().int().optional(),
   revives: z.number().int(),
   teamId: z.number().int().nullable(),
   placement: z.number().int().nullable(),
@@ -125,6 +214,7 @@ export const CalculatedPointsSchema = z.object({
   pubgPlayerName: z.string(),
   damage: z.number(),
   kills: z.number().int(),
+  assists: z.number().int().optional(),
   revives: z.number().int(),
   damagePoints: z.number().int(),
   killPoints: z.number().int(),
@@ -212,9 +302,20 @@ export const UnsettledPlayerSummarySchema = z.object({
 });
 
 export const UnsettledBattleSummarySchema = z.object({
+  ruleId: z.number().nullable(),
   activeRuleName: z.string().nullable(),
   unsettledMatchCount: z.number().int(),
   players: z.array(UnsettledPlayerSummarySchema),
+});
+
+export const RecalculateUnsettledPointsInputSchema = z.object({
+  ruleId: z.number().int().positive(),
+});
+
+export const RecalculateUnsettledPointsResultSchema = z.object({
+  ruleId: z.number().int(),
+  ruleName: z.string(),
+  recalculatedMatchCount: z.number().int(),
 });
 
 export const UpdatePointMatchNoteInputSchema = z.object({
@@ -281,3 +382,5 @@ export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsInputSchema>;
 export type UpdatePointMatchNoteInput = z.infer<typeof UpdatePointMatchNoteInputSchema>;
 export type SettlePointMatchesInput = z.infer<typeof SettlePointMatchesInputSchema>;
+export type RecalculateUnsettledPointsInput = z.infer<typeof RecalculateUnsettledPointsInputSchema>;
+export type RecalculateUnsettledPointsResult = z.infer<typeof RecalculateUnsettledPointsResultSchema>;

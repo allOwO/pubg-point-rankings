@@ -5,18 +5,21 @@ use std::{
     time::Duration,
 };
 
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::{
-    engine::calculator::{calculate_points, CalculatedPoints, RuleConfig},
+    engine::calculator::{calculate_points, CalculatedPoints, PlayerStats, RuleConfig},
     error::AppError,
-    parser::telemetry::{aggregate_player_stats, parse_telemetry},
-    pubg::client::PubgClient,
+    parser::telemetry::{parse_match_detail, parse_telemetry},
+    pubg::client::{PubgClient, PubgMatch, PubgMatchParticipantStats},
     repository::{
         accounts::AccountsRepository,
         matches::{
-            CreateMatchInput, CreateMatchPlayerInput, MatchDto, MatchPlayerDto, MatchesRepository,
+            CreateMatchDamageEventInput, CreateMatchInput, CreateMatchKillEventInput,
+            CreateMatchKnockEventInput, CreateMatchPlayerInput, CreateMatchPlayerWeaponStatInput,
+            CreateMatchReviveEventInput, MatchDto, MatchPlayerDto, MatchesRepository,
         },
         points::{CreatePointRecordInput, PointRecordsRepository},
         rules::PointRulesRepository,
@@ -24,6 +27,8 @@ use crate::{
         teammates::{TeammateDto, TeammatesRepository},
     },
 };
+
+const REMOTE_FETCH_CONCURRENCY: usize = 4;
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +48,16 @@ pub struct SyncResult {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct MatchSyncBundle {
+    match_id: String,
+    platform: String,
+    pubg_match: PubgMatch,
+    participant_stats: Vec<PubgMatchParticipantStats>,
+    telemetry_url: String,
+    telemetry_json: String,
+}
+
 impl SyncResult {
     pub fn failed(message: impl Into<String>) -> Self {
         Self {
@@ -50,26 +65,6 @@ impl SyncResult {
             match_data: None,
             players: None,
             points: None,
-            error: Some(message.into()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ManualTeammateSyncResult {
-    pub success: bool,
-    pub scanned_matches: usize,
-    pub synced_teammates: usize,
-    pub error: Option<String>,
-}
-
-impl ManualTeammateSyncResult {
-    pub fn failed(message: impl Into<String>) -> Self {
-        Self {
-            success: false,
-            scanned_matches: 0,
-            synced_teammates: 0,
             error: Some(message.into()),
         }
     }
@@ -87,30 +82,13 @@ pub fn sync_recent_match(
     sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>,
 ) -> Result<SyncResult, AppError> {
     let active_account = AccountsRepository::new(connection).require_active()?;
-    let api_key = active_account.pubg_api_key.clone();
-    if api_key.trim().is_empty() {
-        let result = SyncResult::failed("Please configure PUBG API key before starting sync.");
-        set_runtime_error(sync_runtime, result.error.clone());
-        return Ok(result);
-    }
-
-    let self_player_name = active_account.self_player_name.clone();
-    if self_player_name.trim().is_empty() {
-        let result = SyncResult::failed("Please configure your PUBG player name before syncing.");
-        set_runtime_error(sync_runtime, result.error.clone());
-        return Ok(result);
-    }
-
+    let api_key = require_api_key(&active_account.pubg_api_key)?;
+    let self_player_name = require_player_name(&active_account.self_player_name)?;
     let platform = normalize_platform(active_account.self_platform.clone());
     let pubg_client = PubgClient::new(api_key);
 
-    let Some(player) = pubg_client.get_player_by_name(&self_player_name, &platform)? else {
-        let result = SyncResult::failed("Player not found in PUBG API.");
-        set_runtime_error(sync_runtime, result.error.clone());
-        return Ok(result);
-    };
-
-    let recent_matches = pubg_client.get_recent_matches(&player.id, &platform, 1)?;
+    let recent_matches =
+        pubg_client.get_recent_matches_for_player_name(&self_player_name, &platform, 1)?;
     let Some(match_id) = recent_matches.first() else {
         let result = SyncResult::failed("No recent matches found.");
         set_runtime_error(sync_runtime, result.error.clone());
@@ -118,6 +96,33 @@ pub fn sync_recent_match(
     };
 
     sync_match(connection, sync_runtime, match_id, Some(platform.as_str()))
+}
+
+pub fn sync_recent_matches_batch(
+    connection: &Connection,
+    sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>,
+    limit: usize,
+) -> Result<SyncResult, AppError> {
+    let busy = begin_sync(sync_runtime, "recent-batch");
+    if let Some(result) = busy {
+        return Ok(result);
+    }
+
+    let result = sync_recent_matches_batch_inner(connection, limit);
+    match result {
+        Ok(result) => {
+            if result.success {
+                end_sync(sync_runtime, None);
+            } else {
+                end_sync(sync_runtime, result.error.clone());
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            end_sync(sync_runtime, Some(error.to_string()));
+            Ok(SyncResult::failed(error.to_string()))
+        }
+    }
 }
 
 pub fn sync_recent_match_with_retry(
@@ -168,75 +173,236 @@ pub fn sync_match(
     }
 }
 
+fn sync_recent_matches_batch_inner(
+    connection: &Connection,
+    limit: usize,
+) -> Result<SyncResult, AppError> {
+    let active_account = AccountsRepository::new(connection).require_active()?;
+    let api_key = require_api_key(&active_account.pubg_api_key)?;
+    let self_player_name = require_player_name(&active_account.self_player_name)?;
+    let platform = normalize_platform(active_account.self_platform.clone());
+    let pubg_client = PubgClient::new(api_key.clone());
+    let matches_repo = MatchesRepository::new(connection, active_account.id);
+    let points_repo = PointRecordsRepository::new(connection, active_account.id);
+
+    let recent_match_ids =
+        pubg_client.get_recent_matches_for_player_name(&self_player_name, &platform, limit)?;
+    if recent_match_ids.is_empty() {
+        return Ok(SyncResult::failed("No recent matches found."));
+    }
+
+    let mut match_ids_to_fetch = Vec::new();
+    let mut latest_existing_result = None;
+    for match_id in &recent_match_ids {
+        if match_needs_refresh(&matches_repo, &points_repo, match_id)? {
+            match_ids_to_fetch.push(match_id.clone());
+            continue;
+        }
+
+        if latest_existing_result.is_none() {
+            latest_existing_result = Some(SyncResult {
+                success: true,
+                match_data: matches_repo.get_by_id(match_id)?,
+                players: Some(matches_repo.get_players(match_id)?),
+                points: None,
+                error: None,
+            });
+        }
+    }
+
+    if match_ids_to_fetch.is_empty() {
+        return Ok(latest_existing_result.unwrap_or_else(|| SyncResult {
+            success: true,
+            match_data: None,
+            players: None,
+            points: None,
+            error: None,
+        }));
+    }
+
+    let fetched = fetch_match_bundles_concurrently(
+        &api_key,
+        &platform,
+        &match_ids_to_fetch,
+        REMOTE_FETCH_CONCURRENCY,
+    );
+
+    let mut latest_success = latest_existing_result;
+    let mut first_error = None;
+    for (match_id, result) in fetched {
+        match result {
+            Ok(bundle) => match persist_match_bundle(
+                connection,
+                &active_account.self_player_name,
+                &platform,
+                bundle,
+            ) {
+                Ok(sync_result) if sync_result.success => {
+                    if latest_success.is_none() {
+                        latest_success = Some(sync_result);
+                    }
+                }
+                Ok(sync_result) => {
+                    mark_match_failed(connection, &match_id);
+                    if first_error.is_none() {
+                        first_error = sync_result.error;
+                    }
+                }
+                Err(error) => {
+                    mark_match_failed(connection, &match_id);
+                    if first_error.is_none() {
+                        first_error = Some(error.to_string());
+                    }
+                }
+            },
+            Err(error) => {
+                mark_match_failed(connection, &match_id);
+                if first_error.is_none() {
+                    first_error = Some(error.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(latest_success.unwrap_or_else(|| {
+        SyncResult::failed(
+            first_error.unwrap_or_else(|| "Failed to sync recent matches.".to_string()),
+        )
+    }))
+}
+
 fn sync_match_inner(
     connection: &Connection,
     match_id: &str,
     platform: Option<&str>,
 ) -> Result<SyncResult, AppError> {
     let active_account = AccountsRepository::new(connection).require_active()?;
-    let api_key = active_account.pubg_api_key.clone();
-    if api_key.trim().is_empty() {
-        return Ok(SyncResult::failed(
-            "Please configure PUBG API key before starting sync.",
-        ));
-    }
-
-    let self_player_name = active_account.self_player_name.clone();
+    let api_key = require_api_key(&active_account.pubg_api_key)?;
+    let self_player_name = require_player_name(&active_account.self_player_name)?;
     let target_platform = normalize_platform(
         platform
             .map(ToOwned::to_owned)
             .unwrap_or(active_account.self_platform.clone()),
     );
 
-    let pubg_client = PubgClient::new(api_key);
     let matches_repo = MatchesRepository::new(connection, active_account.id);
     let points_repo = PointRecordsRepository::new(connection, active_account.id);
-
-    let mut match_data = matches_repo.get_by_id(match_id)?;
-    if match_data.is_none() {
-        let Some(pubg_match) = pubg_client.get_match(match_id, &target_platform)? else {
-            return Ok(SyncResult::failed("Match not found in PUBG API."));
-        };
-
-        let telemetry_url = pubg_client.get_telemetry_url(&pubg_match);
-        match_data = Some(matches_repo.create(CreateMatchInput {
-            match_id: pubg_match.id,
-            platform: target_platform.clone(),
-            map_name: pubg_match.attributes.map_name,
-            game_mode: pubg_match.attributes.game_mode,
-            played_at: pubg_match.attributes.created_at,
-            match_start_at: None,
-            match_end_at: None,
-            telemetry_url,
-            status: "detected".to_string(),
-        })?);
-    }
-
-    let already_ready = match_data
-        .as_ref()
-        .is_some_and(|existing_match| existing_match.status == "ready");
-
-    if already_ready && points_repo.exists_for_match(match_id)? {
-        let existing_players = matches_repo.get_players(match_id)?;
+    if !match_needs_refresh(&matches_repo, &points_repo, match_id)? {
         return Ok(SyncResult {
             success: true,
-            match_data,
-            players: Some(existing_players),
+            match_data: matches_repo.get_by_id(match_id)?,
+            players: Some(matches_repo.get_players(match_id)?),
             points: None,
             error: None,
         });
     }
 
-    matches_repo.update_status(match_id, "syncing")?;
+    let bundle = fetch_match_bundle(&api_key, &target_platform, match_id)?;
+    persist_match_bundle(connection, &self_player_name, &target_platform, bundle)
+}
 
-    let telemetry_url = match_data
-        .as_ref()
-        .and_then(|value| value.telemetry_url.clone())
+fn fetch_match_bundles_concurrently(
+    api_key: &str,
+    platform: &str,
+    match_ids: &[String],
+    concurrency: usize,
+) -> Vec<(String, Result<MatchSyncBundle, AppError>)> {
+    let chunk_size = concurrency.max(1);
+    let mut results = Vec::new();
+
+    for chunk in match_ids.chunks(chunk_size) {
+        let mut handles = Vec::with_capacity(chunk.len());
+        for match_id in chunk {
+            let api_key = api_key.to_string();
+            let platform = platform.to_string();
+            let match_id = match_id.clone();
+            handles.push(thread::spawn(move || {
+                let result = fetch_match_bundle(&api_key, &platform, &match_id);
+                (match_id, result)
+            }));
+        }
+
+        for (fallback_match_id, handle) in chunk.iter().cloned().zip(handles) {
+            match handle.join() {
+                Ok(result) => results.push(result),
+                Err(_) => results.push((
+                    fallback_match_id,
+                    Err(AppError::Message("match fetch worker panicked".to_string())),
+                )),
+            }
+        }
+    }
+
+    results
+}
+
+fn fetch_match_bundle(
+    api_key: &str,
+    platform: &str,
+    match_id: &str,
+) -> Result<MatchSyncBundle, AppError> {
+    let pubg_client = PubgClient::new(api_key.to_string());
+    let Some(pubg_match) = pubg_client.get_match(match_id, platform)? else {
+        return Err(AppError::Message(
+            "Match not found in PUBG API.".to_string(),
+        ));
+    };
+    let telemetry_url = pubg_client
+        .get_telemetry_url(&pubg_match)
         .ok_or_else(|| AppError::Message("No telemetry URL available for match.".to_string()))?;
-
     let telemetry_json = pubg_client.get_telemetry(&telemetry_url)?;
-    let telemetry_events = parse_telemetry(&telemetry_json)?;
-    let player_stats = aggregate_player_stats(&telemetry_events);
+
+    Ok(MatchSyncBundle {
+        match_id: pubg_match.id.clone(),
+        platform: platform.to_string(),
+        participant_stats: pubg_client.extract_match_participants(&pubg_match),
+        pubg_match,
+        telemetry_url,
+        telemetry_json,
+    })
+}
+
+fn persist_match_bundle(
+    connection: &Connection,
+    self_player_name: &str,
+    target_platform: &str,
+    bundle: MatchSyncBundle,
+) -> Result<SyncResult, AppError> {
+    let active_account = AccountsRepository::new(connection).require_active()?;
+    let matches_repo = MatchesRepository::new(connection, active_account.id);
+    let telemetry_events = parse_telemetry(&bundle.telemetry_json)?;
+    let telemetry_detail = parse_match_detail(&telemetry_events);
+    let player_stats =
+        merge_player_stats(&bundle.participant_stats, &telemetry_detail.player_stats);
+
+    let match_end_at = telemetry_detail
+        .match_end_at
+        .clone()
+        .or_else(|| Some(bundle.pubg_match.attributes.created_at.clone()));
+    let match_start_at = telemetry_detail.match_start_at.clone().or_else(|| {
+        derive_match_start_at(
+            match_end_at.as_deref(),
+            bundle.pubg_match.attributes.duration,
+        )
+    });
+
+    let create_input = CreateMatchInput {
+        match_id: bundle.match_id.clone(),
+        platform: bundle.platform.clone(),
+        map_name: bundle.pubg_match.attributes.map_name.clone(),
+        game_mode: bundle.pubg_match.attributes.game_mode.clone(),
+        played_at: bundle.pubg_match.attributes.created_at.clone(),
+        match_start_at,
+        match_end_at,
+        telemetry_url: Some(bundle.telemetry_url.clone()),
+        status: "syncing".to_string(),
+    };
+
+    if matches_repo.get_by_id(&bundle.match_id)?.is_some() {
+        matches_repo.update_match_fields(create_input.clone())?
+    } else {
+        Some(matches_repo.create(create_input.clone())?)
+    };
 
     let active_rule = PointRulesRepository::new(connection, active_account.id)
         .get_active()?
@@ -251,45 +417,81 @@ fn sync_match_inner(
         rounding_mode: active_rule.rounding_mode,
     };
 
-    let teammates_repo = TeammatesRepository::new(connection, active_account.id);
-    let mut teammates_by_account_id: HashMap<String, TeammateDto> = HashMap::new();
-    let mut teammates_by_name: HashMap<String, TeammateDto> = HashMap::new();
-    let mut enabled_player_ids: HashSet<String> = HashSet::new();
-
-    for stats in &player_stats {
-        let teammate = teammates_repo.find_or_create(
-            &stats.pubg_player_name,
-            &target_platform,
-            Some(stats.pubg_account_id.as_str()),
-        )?;
-        teammates_repo.update_last_seen(teammate.id)?;
-
-        teammates_by_account_id.insert(stats.pubg_account_id.clone(), teammate.clone());
-        teammates_by_name.insert(
-            stats.pubg_player_name.to_ascii_lowercase(),
-            teammate.clone(),
-        );
-
-        let is_self = !self_player_name.trim().is_empty()
-            && stats
+    let self_team_id = player_stats
+        .iter()
+        .find(|entry| {
+            entry
                 .pubg_player_name
-                .eq_ignore_ascii_case(self_player_name.trim());
-        if teammate.is_points_enabled || is_self {
-            enabled_player_ids.insert(stats.pubg_account_id.clone());
-        }
-    }
-
-    let calculated_points = calculate_points(&player_stats, &rule, &enabled_player_ids);
-
+                .eq_ignore_ascii_case(self_player_name)
+        })
+        .and_then(|entry| entry.team_id);
     let self_account_id = player_stats
         .iter()
         .find(|entry| {
-            !self_player_name.trim().is_empty()
-                && entry
-                    .pubg_player_name
-                    .eq_ignore_ascii_case(self_player_name.trim())
+            entry
+                .pubg_player_name
+                .eq_ignore_ascii_case(self_player_name)
         })
         .map(|entry| entry.pubg_account_id.clone());
+
+    let teammates_repo = TeammatesRepository::new(connection, active_account.id);
+    let mut teammates_by_key: HashMap<String, TeammateDto> = HashMap::new();
+    let mut enabled_player_keys: HashSet<String> = HashSet::new();
+    for stats in &player_stats {
+        let teammate = if stats.pubg_account_id.trim().is_empty() {
+            teammates_repo.get_by_player_name(target_platform, &stats.pubg_player_name)?
+        } else {
+            teammates_repo
+                .get_by_account_id(target_platform, &stats.pubg_account_id)?
+                .or_else(|| {
+                    teammates_repo
+                        .get_by_player_name(target_platform, &stats.pubg_player_name)
+                        .ok()
+                        .flatten()
+                })
+        };
+
+        if let Some(teammate) = teammate.clone() {
+            teammates_by_key.insert(
+                player_identity_key(&stats.pubg_account_id, &stats.pubg_player_name),
+                teammate.clone(),
+            );
+        }
+
+        let is_same_team = self_team_id.is_some() && stats.team_id == self_team_id;
+        let is_enabled = if stats
+            .pubg_player_name
+            .eq_ignore_ascii_case(self_player_name)
+        {
+            true
+        } else if is_same_team {
+            teammate
+                .as_ref()
+                .map(|value| value.is_points_enabled)
+                .unwrap_or(true)
+        } else {
+            false
+        };
+
+        if is_enabled {
+            enabled_player_keys.insert(player_identity_key(
+                &stats.pubg_account_id,
+                &stats.pubg_player_name,
+            ));
+        }
+    }
+
+    let calculated_points = calculate_points(&player_stats, &rule, &enabled_player_keys);
+    let player_name_by_account_id = player_stats
+        .iter()
+        .filter(|entry| !entry.pubg_account_id.trim().is_empty())
+        .map(|entry| {
+            (
+                entry.pubg_account_id.clone(),
+                entry.pubg_player_name.clone(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
 
     let tx = connection.unchecked_transaction()?;
     let tx_matches = MatchesRepository::new(&tx, active_account.id);
@@ -297,27 +499,49 @@ fn sync_match_inner(
     let tx_teammates = TeammatesRepository::new(&tx, active_account.id);
     let tx_settings = SettingsRepository::new(&tx);
 
-    tx_points.delete_for_match(match_id)?;
-    tx_matches.delete_players_for_match(match_id)?;
+    tx_points.delete_for_match(&bundle.match_id)?;
+    tx_matches.delete_players_for_match(&bundle.match_id)?;
+    tx_matches.delete_detail_events_for_match(&bundle.match_id)?;
+
+    for stats in &player_stats {
+        if !stats
+            .pubg_player_name
+            .eq_ignore_ascii_case(self_player_name)
+            && self_team_id.is_some()
+            && stats.team_id == self_team_id
+        {
+            if let Some(teammate) = teammates_by_key.get(&player_identity_key(
+                &stats.pubg_account_id,
+                &stats.pubg_player_name,
+            )) {
+                tx_teammates
+                    .update_last_seen(teammate.id, &bundle.pubg_match.attributes.created_at)?;
+            }
+        }
+    }
 
     let mut saved_players = Vec::with_capacity(calculated_points.len());
-
     for calc in &calculated_points {
-        let teammate = teammates_by_account_id
-            .get(&calc.pubg_account_id)
-            .or_else(|| teammates_by_name.get(&calc.pubg_player_name.to_ascii_lowercase()));
+        let teammate = teammates_by_key
+            .get(&player_identity_key(
+                &calc.pubg_account_id,
+                &calc.pubg_player_name,
+            ))
+            .cloned();
 
         let saved_player = tx_matches.create_player(CreateMatchPlayerInput {
-            match_id: match_id.to_string(),
-            teammate_id: teammate.map(|value| value.id),
+            match_id: bundle.match_id.clone(),
+            teammate_id: teammate.as_ref().map(|value| value.id),
             pubg_account_id: Some(calc.pubg_account_id.clone()),
             pubg_player_name: calc.pubg_player_name.clone(),
             display_nickname_snapshot: teammate
+                .as_ref()
                 .and_then(|value| value.display_nickname.clone())
                 .or_else(|| Some(calc.pubg_player_name.clone())),
             team_id: calc.team_id,
             damage: calc.damage,
             kills: calc.kills,
+            assists: calc.assists,
             revives: calc.revives,
             placement: calc.placement,
             is_self: self_account_id
@@ -328,9 +552,9 @@ fn sync_match_inner(
         })?;
 
         tx_points.create(CreatePointRecordInput {
-            match_id: match_id.to_string(),
+            match_id: bundle.match_id.clone(),
             match_player_id: saved_player.id,
-            teammate_id: teammate.map(|value| value.id),
+            teammate_id: teammate.as_ref().map(|value| value.id),
             rule_id: rule.id,
             rule_name_snapshot: rule.name.clone(),
             damage_points_per_damage_snapshot: rule.damage_points_per_damage,
@@ -349,12 +573,78 @@ fn sync_match_inner(
         saved_players.push(saved_player);
     }
 
-    tx_matches.update_status(match_id, "ready")?;
+    for event in &telemetry_detail.damage_events {
+        tx_matches.create_damage_event(CreateMatchDamageEventInput {
+            match_id: bundle.match_id.clone(),
+            attacker_account_id: event.attacker_account_id.clone(),
+            attacker_name: event.attacker_name.clone(),
+            victim_account_id: event.victim_account_id.clone(),
+            victim_name: event.victim_name.clone(),
+            damage: event.damage,
+            damage_type_category: event.damage_type_category.clone(),
+            damage_causer_name: event.damage_causer_name.clone(),
+            event_at: event.event_at.clone(),
+        })?;
+    }
+
+    for event in &telemetry_detail.kill_events {
+        tx_matches.create_kill_event(CreateMatchKillEventInput {
+            match_id: bundle.match_id.clone(),
+            killer_account_id: event.killer_account_id.clone(),
+            killer_name: event.killer_name.clone(),
+            victim_account_id: event.victim_account_id.clone(),
+            victim_name: event.victim_name.clone(),
+            assistant_account_id: event.assistant_account_id.clone(),
+            assistant_name: event
+                .assistant_account_id
+                .as_ref()
+                .and_then(|account_id| player_name_by_account_id.get(account_id).cloned()),
+            damage_type_category: event.damage_type_category.clone(),
+            damage_causer_name: event.damage_causer_name.clone(),
+            event_at: event.event_at.clone(),
+        })?;
+    }
+
+    for event in &telemetry_detail.knock_events {
+        tx_matches.create_knock_event(CreateMatchKnockEventInput {
+            match_id: bundle.match_id.clone(),
+            attacker_account_id: event.attacker_account_id.clone(),
+            attacker_name: event.attacker_name.clone(),
+            victim_account_id: event.victim_account_id.clone(),
+            victim_name: event.victim_name.clone(),
+            damage_type_category: event.damage_type_category.clone(),
+            damage_causer_name: event.damage_causer_name.clone(),
+            event_at: event.event_at.clone(),
+        })?;
+    }
+
+    for event in &telemetry_detail.revive_events {
+        tx_matches.create_revive_event(CreateMatchReviveEventInput {
+            match_id: bundle.match_id.clone(),
+            reviver_account_id: event.reviver_account_id.clone(),
+            reviver_name: event.reviver_name.clone(),
+            victim_account_id: event.victim_account_id.clone(),
+            victim_name: event.victim_name.clone(),
+            event_at: event.event_at.clone(),
+        })?;
+    }
+
+    for stat in &telemetry_detail.weapon_damage_stats {
+        tx_matches.create_weapon_stat(CreateMatchPlayerWeaponStatInput {
+            match_id: bundle.match_id.clone(),
+            pubg_account_id: Some(stat.pubg_account_id.clone()),
+            pubg_player_name: stat.pubg_player_name.clone(),
+            weapon_name: stat.weapon_name.clone(),
+            total_damage: stat.total_damage,
+        })?;
+    }
+
+    tx_matches.update_status(&bundle.match_id, "ready")?;
     tx_settings.set_account(active_account.id, "last_sync_at", &chrono_like_iso_utc())?;
     tx.commit()?;
 
-    let final_match = MatchesRepository::new(connection, active_account.id).get_by_id(match_id)?;
-
+    let final_match =
+        MatchesRepository::new(connection, active_account.id).get_by_id(&bundle.match_id)?;
     Ok(SyncResult {
         success: true,
         match_data: final_match,
@@ -362,6 +652,91 @@ fn sync_match_inner(
         points: Some(calculated_points),
         error: None,
     })
+}
+
+fn match_needs_refresh(
+    matches_repo: &MatchesRepository<'_>,
+    points_repo: &PointRecordsRepository<'_>,
+    match_id: &str,
+) -> Result<bool, AppError> {
+    let Some(match_data) = matches_repo.get_by_id(match_id)? else {
+        return Ok(true);
+    };
+
+    if match_data.status != "ready" {
+        return Ok(true);
+    }
+
+    if match_data.match_start_at.is_none() || match_data.match_end_at.is_none() {
+        return Ok(true);
+    }
+
+    if !points_repo.exists_for_match(match_id)? {
+        return Ok(true);
+    }
+
+    if !matches_repo.has_detail_payload(match_id)? {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn merge_player_stats(
+    participant_stats: &[PubgMatchParticipantStats],
+    telemetry_stats: &[PlayerStats],
+) -> Vec<PlayerStats> {
+    let mut telemetry_by_key = telemetry_stats
+        .iter()
+        .cloned()
+        .map(|entry| {
+            (
+                player_identity_key(&entry.pubg_account_id, &entry.pubg_player_name),
+                entry,
+            )
+        })
+        .collect::<HashMap<_, _>>();
+
+    let mut merged = Vec::new();
+    for participant in participant_stats {
+        let key = player_identity_key(&participant.pubg_account_id, &participant.pubg_player_name);
+        let telemetry = telemetry_by_key.remove(&key);
+        merged.push(PlayerStats {
+            pubg_account_id: participant.pubg_account_id.clone(),
+            pubg_player_name: participant.pubg_player_name.clone(),
+            damage: round_damage(participant.damage),
+            kills: participant.kills,
+            assists: participant.assists,
+            revives: participant.revives,
+            team_id: participant
+                .team_id
+                .or_else(|| telemetry.as_ref().and_then(|entry| entry.team_id)),
+            placement: participant
+                .placement
+                .or_else(|| telemetry.as_ref().and_then(|entry| entry.placement)),
+        });
+    }
+
+    merged.extend(telemetry_by_key.into_values().map(|mut entry| {
+        entry.assists = 0;
+        entry.damage = round_damage(entry.damage);
+        entry
+    }));
+
+    merged.sort_by(|left, right| {
+        right
+            .kills
+            .cmp(&left.kills)
+            .then_with(|| right.assists.cmp(&left.assists))
+            .then_with(|| {
+                right
+                    .damage
+                    .partial_cmp(&left.damage)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| left.pubg_player_name.cmp(&right.pubg_player_name))
+    });
+    merged
 }
 
 fn begin_sync(sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>, match_id: &str) -> Option<SyncResult> {
@@ -406,75 +781,26 @@ fn mark_match_failed(connection: &Connection, match_id: &str) {
     }
 }
 
-pub fn sync_recent_teammates(
-    connection: &Connection,
-    recent_match_limit: usize,
-) -> Result<ManualTeammateSyncResult, AppError> {
-    let active_account = AccountsRepository::new(connection).require_active()?;
-    let api_key = active_account.pubg_api_key.clone();
-    if api_key.trim().is_empty() {
-        return Ok(ManualTeammateSyncResult::failed(
-            "Please configure PUBG API key before syncing friends.",
-        ));
+fn require_api_key(api_key: &str) -> Result<String, AppError> {
+    let trimmed = api_key.trim();
+    if trimmed.is_empty() {
+        Err(AppError::Message(
+            "Please configure PUBG API key before starting sync.".to_string(),
+        ))
+    } else {
+        Ok(trimmed.to_string())
     }
+}
 
-    let self_player_name = active_account.self_player_name.trim().to_string();
-    if self_player_name.is_empty() {
-        return Ok(ManualTeammateSyncResult::failed(
-            "Please configure your PUBG player name before syncing friends.",
-        ));
+fn require_player_name(player_name: &str) -> Result<String, AppError> {
+    let trimmed = player_name.trim();
+    if trimmed.is_empty() {
+        Err(AppError::Message(
+            "Please configure your PUBG player name before syncing.".to_string(),
+        ))
+    } else {
+        Ok(trimmed.to_string())
     }
-
-    let platform = normalize_platform(active_account.self_platform.clone());
-    let pubg_client = PubgClient::new(api_key);
-    let Some(player) = pubg_client.get_player_by_name(&self_player_name, &platform)? else {
-        return Ok(ManualTeammateSyncResult::failed(
-            "Player not found in PUBG API.",
-        ));
-    };
-
-    let recent_matches =
-        pubg_client.get_recent_matches(&player.id, &platform, recent_match_limit)?;
-    let teammates_repo = TeammatesRepository::new(connection, active_account.id);
-    let mut synced_teammate_ids = HashSet::new();
-
-    for match_id in &recent_matches {
-        let Some(pubg_match) = pubg_client.get_match(match_id, &platform)? else {
-            continue;
-        };
-
-        let Some(telemetry_url) = pubg_client.get_telemetry_url(&pubg_match) else {
-            continue;
-        };
-
-        let telemetry_json = pubg_client.get_telemetry(&telemetry_url)?;
-        let telemetry_events = parse_telemetry(&telemetry_json)?;
-        let player_stats = aggregate_player_stats(&telemetry_events);
-
-        for stats in player_stats {
-            if stats
-                .pubg_player_name
-                .eq_ignore_ascii_case(&self_player_name)
-            {
-                continue;
-            }
-
-            let teammate = teammates_repo.find_or_create(
-                &stats.pubg_player_name,
-                &platform,
-                Some(stats.pubg_account_id.as_str()),
-            )?;
-            teammates_repo.update_last_seen(teammate.id)?;
-            synced_teammate_ids.insert(teammate.id);
-        }
-    }
-
-    Ok(ManualTeammateSyncResult {
-        success: true,
-        scanned_matches: recent_matches.len(),
-        synced_teammates: synced_teammate_ids.len(),
-        error: None,
-    })
 }
 
 fn normalize_platform(value: String) -> String {
@@ -482,6 +808,30 @@ fn normalize_platform(value: String) -> String {
         "steam" | "xbox" | "psn" | "kakao" => value.trim().to_ascii_lowercase(),
         _ => "steam".to_string(),
     }
+}
+
+fn player_identity_key(pubg_account_id: &str, pubg_player_name: &str) -> String {
+    let trimmed_account_id = pubg_account_id.trim();
+    if !trimmed_account_id.is_empty() {
+        return format!("account:{trimmed_account_id}");
+    }
+
+    format!("name:{}", pubg_player_name.trim().to_ascii_lowercase())
+}
+
+fn round_damage(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+fn derive_match_start_at(
+    match_end_at: Option<&str>,
+    duration_seconds: Option<i64>,
+) -> Option<String> {
+    let match_end_at = match_end_at?;
+    let duration_seconds = duration_seconds?;
+    let end_at = DateTime::parse_from_rfc3339(match_end_at).ok()?;
+    let start_at = end_at - ChronoDuration::seconds(duration_seconds);
+    Some(start_at.with_timezone(&Utc).to_rfc3339())
 }
 
 fn chrono_like_iso_utc() -> String {

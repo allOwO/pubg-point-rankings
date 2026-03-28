@@ -6,9 +6,16 @@ import type {
   CreatePointRuleInput,
   CreateTeammateInput,
   Match,
+  MatchDetail,
+  MatchDamageEvent,
+  MatchKillEvent,
+  MatchKnockEvent,
   MatchPlayer,
+  MatchPlayerWeaponStat,
+  MatchReviveEvent,
   PointRecord,
   PointRule,
+  RecentTeammateCandidate,
   SettlePointMatchesInput,
   SyncStatus,
   Teammate,
@@ -20,6 +27,8 @@ import type {
   PointHistoryRuleChangeMarker,
   PointHistoryPlayerBreakdown,
   PointBattleDelta,
+  RecalculateUnsettledPointsInput,
+  RecalculateUnsettledPointsResult,
   UnsettledBattleSummary,
   UnsettledPlayerSummary,
 } from '@pubg-point-rankings/shared';
@@ -55,6 +64,7 @@ export interface GameProcessStatus {
 }
 
 export type {
+  MatchDetail,
   PointHistoryListItem,
   PointHistoryMatchGroup,
   PointHistoryRuleChangeMarker,
@@ -95,7 +105,8 @@ export interface AppAPIClient {
     create(input: CreateTeammateInput): Promise<Teammate>;
     update(input: UpdateTeammateInput): Promise<Teammate>;
     getHistory(id: number): Promise<{ teammate: Teammate; records: PointRecord[]; totalMatches: number }>;
-    syncManual(): Promise<{ success: boolean; scannedMatches: number; syncedTeammates: number; error?: string }>;
+    getRecentCandidates(): Promise<RecentTeammateCandidate[]>;
+    delete(id: number): Promise<void>;
   };
   rules: {
     getAll(): Promise<PointRule[]>;
@@ -109,12 +120,14 @@ export interface AppAPIClient {
     getAll(limit?: number, offset?: number): Promise<Match[]>;
     getById(matchId: string): Promise<Match | null>;
     getPlayers(matchId: string): Promise<MatchPlayer[]>;
+    getDetail(matchId: string): Promise<MatchDetail | null>;
   };
   points: {
     getAll(limit?: number, offset?: number): Promise<PointRecord[]>;
     getByMatch(matchId: string): Promise<PointRecord[]>;
     getHistoryGroups(limit?: number, offset?: number): Promise<PointHistoryListItem[]>;
     getUnsettledSummary(): Promise<UnsettledBattleSummary>;
+    recalculateUnsettled(input: RecalculateUnsettledPointsInput): Promise<RecalculateUnsettledPointsResult>;
     settleThroughMatch(input: SettlePointMatchesInput): Promise<{ settlementBatchId: number; settledMatchCount: number }>;
     updateMatchNote(input: UpdatePointMatchNoteInput): Promise<void>;
   };
@@ -175,11 +188,20 @@ interface TeammateDto {
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
+  isFriend: boolean;
   isPointsEnabled: boolean;
   totalPoints: number;
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface RecentTeammateCandidateDto {
+  platform: RecentTeammateCandidate['platform'];
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  lastTeammateAt: string;
+  isFriend: boolean;
 }
 
 interface MatchDto {
@@ -209,12 +231,91 @@ interface MatchPlayerDto {
   teamId: number | null;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   placement: number | null;
   isSelf: boolean;
   isPointsEnabledSnapshot: boolean;
   points: number;
   createdAt: string;
+}
+
+interface MatchDamageEventDto {
+  id: number;
+  accountId: number;
+  matchId: string;
+  attackerAccountId: string | null;
+  attackerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  damage: number;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: string | null;
+  createdAt: string;
+}
+
+interface MatchKillEventDto {
+  id: number;
+  accountId: number;
+  matchId: string;
+  killerAccountId: string | null;
+  killerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  assistantAccountId: string | null;
+  assistantName: string | null;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: string | null;
+  createdAt: string;
+}
+
+interface MatchKnockEventDto {
+  id: number;
+  accountId: number;
+  matchId: string;
+  attackerAccountId: string | null;
+  attackerName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  damageTypeCategory: string | null;
+  damageCauserName: string | null;
+  eventAt: string | null;
+  createdAt: string;
+}
+
+interface MatchReviveEventDto {
+  id: number;
+  accountId: number;
+  matchId: string;
+  reviverAccountId: string | null;
+  reviverName: string | null;
+  victimAccountId: string | null;
+  victimName: string | null;
+  eventAt: string | null;
+  createdAt: string;
+}
+
+interface MatchPlayerWeaponStatDto {
+  id: number;
+  accountId: number;
+  matchId: string;
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  weaponName: string;
+  totalDamage: number;
+  createdAt: string;
+}
+
+interface MatchDetailDto {
+  match: MatchDto;
+  players: MatchPlayerDto[];
+  damageEvents: MatchDamageEventDto[];
+  killEvents: MatchKillEventDto[];
+  knockEvents: MatchKnockEventDto[];
+  reviveEvents: MatchReviveEventDto[];
+  weaponStats: MatchPlayerWeaponStatDto[];
 }
 
 interface PointRuleDto {
@@ -311,9 +412,16 @@ interface UnsettledPlayerSummaryDto {
 }
 
 interface UnsettledBattleSummaryDto {
+  ruleId: number | null;
   activeRuleName: string | null;
   unsettledMatchCount: number;
   players: UnsettledPlayerSummaryDto[];
+}
+
+interface RecalculateUnsettledPointsResultDto {
+  ruleId: number;
+  ruleName: string;
+  recalculatedMatchCount: number;
 }
 
 function isCommandMissingError(error: unknown): boolean {
@@ -364,6 +472,13 @@ function hydrateTeammate(dto: TeammateDto): Teammate {
   };
 }
 
+function hydrateRecentTeammateCandidate(dto: RecentTeammateCandidateDto): RecentTeammateCandidate {
+  return {
+    ...dto,
+    lastTeammateAt: new Date(dto.lastTeammateAt),
+  };
+}
+
 function hydrateMatch(dto: MatchDto): Match {
   return {
     ...dto,
@@ -379,6 +494,57 @@ function hydrateMatchPlayer(dto: MatchPlayerDto): MatchPlayer {
   return {
     ...dto,
     createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchDamageEvent(dto: MatchDamageEventDto): MatchDamageEvent {
+  return {
+    ...dto,
+    eventAt: toDate(dto.eventAt),
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchKillEvent(dto: MatchKillEventDto): MatchKillEvent {
+  return {
+    ...dto,
+    eventAt: toDate(dto.eventAt),
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchKnockEvent(dto: MatchKnockEventDto): MatchKnockEvent {
+  return {
+    ...dto,
+    eventAt: toDate(dto.eventAt),
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchReviveEvent(dto: MatchReviveEventDto): MatchReviveEvent {
+  return {
+    ...dto,
+    eventAt: toDate(dto.eventAt),
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchPlayerWeaponStat(dto: MatchPlayerWeaponStatDto): MatchPlayerWeaponStat {
+  return {
+    ...dto,
+    createdAt: new Date(dto.createdAt),
+  };
+}
+
+function hydrateMatchDetail(dto: MatchDetailDto): MatchDetail {
+  return {
+    match: hydrateMatch(dto.match),
+    players: dto.players.map(hydrateMatchPlayer),
+    damageEvents: dto.damageEvents.map(hydrateMatchDamageEvent),
+    killEvents: dto.killEvents.map(hydrateMatchKillEvent),
+    knockEvents: dto.knockEvents.map(hydrateMatchKnockEvent),
+    reviveEvents: dto.reviveEvents.map(hydrateMatchReviveEvent),
+    weaponStats: dto.weaponStats.map(hydrateMatchPlayerWeaponStat),
   };
 }
 
@@ -439,6 +605,12 @@ function hydrateUnsettledBattleSummary(dto: UnsettledBattleSummaryDto): Unsettle
     ...dto,
     players: dto.players.map(hydrateUnsettledPlayerSummary),
   };
+}
+
+function hydrateRecalculateUnsettledPointsResult(
+  dto: RecalculateUnsettledPointsResultDto,
+): RecalculateUnsettledPointsResult {
+  return dto;
 }
 
 async function invokeOptional<T>(command: string, args: Record<string, unknown> | undefined, fallback: T): Promise<T> {
@@ -514,7 +686,12 @@ export function getAPI(): AppAPIClient {
           totalMatches: history.totalMatches,
         };
       },
-      syncManual: async () => invokeRequired('teammates_sync_manual'),
+      getRecentCandidates: async () => (
+        await invokeRequired<RecentTeammateCandidateDto[]>('teammates_get_recent_candidates')
+      ).map(hydrateRecentTeammateCandidate),
+      delete: async (id) => {
+        await invokeRequired('teammates_delete', { id });
+      },
     },
     rules: {
       getAll: async () => (await invokeOptional<PointRuleDto[]>('rules_get_all', undefined, [])).map(hydrateRule),
@@ -536,12 +713,19 @@ export function getAPI(): AppAPIClient {
         return match ? hydrateMatch(match) : null;
       },
       getPlayers: async (matchId) => (await invokeOptional<MatchPlayerDto[]>('matches_get_players', { matchId }, [])).map(hydrateMatchPlayer),
+      getDetail: async (matchId) => {
+        const detail = await invokeOptional<MatchDetailDto | null>('matches_get_detail', { matchId }, null);
+        return detail ? hydrateMatchDetail(detail) : null;
+      },
     },
     points: {
       getAll: async (limit, offset) => (await invokeOptional<PointRecordDto[]>('points_get_all', { limit, offset }, [])).map(hydratePointRecord),
       getByMatch: async (matchId) => (await invokeOptional<PointRecordDto[]>('points_get_by_match', { matchId }, [])).map(hydratePointRecord),
       getHistoryGroups: async (limit, offset) => (await invokeOptional<PointHistoryListItemDto[]>('points_get_history_groups', { limit, offset }, [])).map(hydratePointHistoryListItem),
       getUnsettledSummary: async () => hydrateUnsettledBattleSummary(await invokeRequired<UnsettledBattleSummaryDto>('points_get_unsettled_summary')),
+      recalculateUnsettled: async (input) => hydrateRecalculateUnsettledPointsResult(
+        await invokeRequired<RecalculateUnsettledPointsResultDto>('points_recalculate_unsettled', { input }),
+      ),
       settleThroughMatch: async (input) => invokeRequired<{ settlementBatchId: number; settledMatchCount: number }>('points_settle_through_match', { input }),
       updateMatchNote: async (input) => invokeRequired('points_update_match_note', { input }),
     },

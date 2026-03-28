@@ -1,4 +1,4 @@
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 10;
 
 pub const INITIAL_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS teammates (
   pubg_account_id TEXT,
   pubg_player_name TEXT NOT NULL,
   display_nickname TEXT,
+  is_friend INTEGER NOT NULL DEFAULT 0 CHECK (is_friend IN (0, 1)),
   is_points_enabled INTEGER NOT NULL DEFAULT 1 CHECK (is_points_enabled IN (0, 1)),
   total_points INTEGER NOT NULL DEFAULT 0 CHECK (total_points >= 0),
   last_seen_at DATETIME,
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS match_players (
   team_id INTEGER,
   damage REAL NOT NULL DEFAULT 0 CHECK (damage >= 0),
   kills INTEGER NOT NULL DEFAULT 0 CHECK (kills >= 0),
+  assists INTEGER NOT NULL DEFAULT 0 CHECK (assists >= 0),
   revives INTEGER NOT NULL DEFAULT 0 CHECK (revives >= 0),
   placement INTEGER CHECK (placement IS NULL OR placement > 0),
   is_self INTEGER NOT NULL DEFAULT 0 CHECK (is_self IN (0, 1)),
@@ -98,6 +100,79 @@ CREATE TABLE IF NOT EXISTS match_players (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE,
   FOREIGN KEY (teammate_id) REFERENCES teammates(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS match_damage_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  attacker_account_id TEXT,
+  attacker_name TEXT,
+  victim_account_id TEXT,
+  victim_name TEXT,
+  damage REAL NOT NULL DEFAULT 0 CHECK (damage >= 0),
+  damage_type_category TEXT,
+  damage_causer_name TEXT,
+  event_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS match_kill_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  killer_account_id TEXT,
+  killer_name TEXT,
+  victim_account_id TEXT,
+  victim_name TEXT,
+  assistant_account_id TEXT,
+  assistant_name TEXT,
+  damage_type_category TEXT,
+  damage_causer_name TEXT,
+  event_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS match_knock_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  attacker_account_id TEXT,
+  attacker_name TEXT,
+  victim_account_id TEXT,
+  victim_name TEXT,
+  damage_type_category TEXT,
+  damage_causer_name TEXT,
+  event_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS match_revive_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  reviver_account_id TEXT,
+  reviver_name TEXT,
+  victim_account_id TEXT,
+  victim_name TEXT,
+  event_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS match_player_weapon_stats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  pubg_account_id TEXT,
+  pubg_player_name TEXT NOT NULL,
+  weapon_name TEXT NOT NULL,
+  total_damage REAL NOT NULL DEFAULT 0 CHECK (total_damage >= 0),
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS point_records (
@@ -151,10 +226,17 @@ CREATE TABLE IF NOT EXISTS point_match_meta (
 
 CREATE INDEX IF NOT EXISTS idx_teammates_account_name ON teammates(account_id, pubg_player_name);
 CREATE INDEX IF NOT EXISTS idx_teammates_account_account_id ON teammates(account_id, pubg_account_id);
+CREATE INDEX IF NOT EXISTS idx_teammates_account_is_friend ON teammates(account_id, is_friend);
 CREATE INDEX IF NOT EXISTS idx_matches_account_played_at ON matches(account_id, played_at DESC);
+CREATE INDEX IF NOT EXISTS idx_matches_account_match_end_at ON matches(account_id, match_end_at DESC, played_at DESC);
 CREATE INDEX IF NOT EXISTS idx_matches_account_status ON matches(account_id, status);
 CREATE INDEX IF NOT EXISTS idx_match_players_account_match_id ON match_players(account_id, match_id);
 CREATE INDEX IF NOT EXISTS idx_match_players_teammate_id ON match_players(teammate_id);
+CREATE INDEX IF NOT EXISTS idx_match_damage_events_account_match_id ON match_damage_events(account_id, match_id);
+CREATE INDEX IF NOT EXISTS idx_match_kill_events_account_match_id ON match_kill_events(account_id, match_id);
+CREATE INDEX IF NOT EXISTS idx_match_knock_events_account_match_id ON match_knock_events(account_id, match_id);
+CREATE INDEX IF NOT EXISTS idx_match_revive_events_account_match_id ON match_revive_events(account_id, match_id);
+CREATE INDEX IF NOT EXISTS idx_match_player_weapon_stats_account_match_id ON match_player_weapon_stats(account_id, match_id);
 CREATE INDEX IF NOT EXISTS idx_point_records_account_match_id ON point_records(account_id, match_id);
 CREATE INDEX IF NOT EXISTS idx_point_records_teammate_id ON point_records(teammate_id);
 CREATE INDEX IF NOT EXISTS idx_point_records_account_created_at ON point_records(account_id, created_at DESC);
@@ -168,11 +250,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
   applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (5);
+INSERT OR IGNORE INTO schema_version (version) VALUES (10);
 "#;
 
 pub const DEFAULT_DATA_SQL: &str = r#"
-INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '5', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '10', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('auto_recent_match_enabled', '1', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_process_check_interval_seconds', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('not_running_process_check_interval_seconds', '30', CURRENT_TIMESTAMP);

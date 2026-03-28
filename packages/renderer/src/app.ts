@@ -1,4 +1,4 @@
-import { getAPI, getRuntimeHost, type Account, type PointHistoryListItem, type UnsettledBattleSummary } from './tauri-api';
+import { getAPI, getRuntimeHost, type Account, type MatchDetail, type PointHistoryListItem, type UnsettledBattleSummary } from './tauri-api';
 import {
   APP_LANGUAGE_SETTING_KEY,
   DEFAULT_LOCALE,
@@ -7,6 +7,7 @@ import {
   type Locale,
   type TranslationKey,
 } from './i18n';
+import { formatActivitySentenceParts } from './match-log-activity';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -16,10 +17,10 @@ import {
 declare global {
   interface Window {
     editTeammateNickname?: (id: number) => Promise<void>;
+    deleteTeammate?: (id: number) => Promise<void>;
     editRule?: (id: number) => Promise<void>;
     activateRule?: (id: number) => Promise<void>;
     deleteRule?: (id: number) => Promise<void>;
-    viewMatchDetail?: (matchId: string) => Promise<void>;
   }
 }
 
@@ -30,11 +31,20 @@ interface Teammate {
   pubgAccountId: string | null;
   pubgPlayerName: string;
   displayNickname: string | null;
+  isFriend: boolean;
   isPointsEnabled: boolean;
   totalPoints: number;
   lastSeenAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface RecentTeammateCandidate {
+  platform: 'steam' | 'xbox' | 'psn' | 'kakao';
+  pubgAccountId: string | null;
+  pubgPlayerName: string;
+  lastTeammateAt: Date;
+  isFriend: boolean;
 }
 
 interface Match {
@@ -62,6 +72,7 @@ interface MatchPlayer {
   teamId: number | null;
   damage: number;
   kills: number;
+  assists: number;
   revives: number;
   placement: number | null;
   isSelf: boolean;
@@ -218,100 +229,110 @@ function isRoundingValue(value: string): value is RoundingValue {
   return ['floor', 'round', 'ceil'].includes(value);
 }
 
-function getFriendIdentifier(teammate: Teammate): string {
-  return teammate.pubgAccountId || teammate.pubgPlayerName;
+function getTeammateLastPlayedMeta(teammate: Teammate): { label: string; sortTime: number } {
+  if (!teammate.lastSeenAt) {
+    return {
+      label: t('friends.lastPlayedNever'),
+      sortTime: Number.NEGATIVE_INFINITY,
+    };
+  }
+
+  return {
+    label: t('friends.lastTeammateAt', { date: formatDateTime(teammate.lastSeenAt) }),
+    sortTime: new Date(teammate.lastSeenAt).getTime(),
+  };
 }
 
-function updateTeammateModalMode(mode: 'create' | 'nickname', teammate?: Teammate) {
-  const titleEl = document.getElementById('teammate-modal-title');
-  const nameInput = document.getElementById('teammate-name') as HTMLInputElement | null;
-  const platformSelect = document.getElementById('teammate-platform') as HTMLSelectElement | null;
-  const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement | null;
-  const enabledGroup = document.getElementById('teammate-enabled-group');
-  const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement | null;
-
-  if (mode === 'create') {
-    if (titleEl) titleEl.textContent = t('modal.friend.add');
-    if (nameInput) {
-      nameInput.disabled = false;
-      nameInput.value = '';
-    }
-    if (platformSelect) {
-      platformSelect.disabled = false;
-      platformSelect.value = 'steam';
-    }
-    if (nicknameInput) nicknameInput.value = '';
-    if (enabledInput) enabledInput.checked = true;
-    enabledGroup?.classList.remove('hidden');
-    return;
+function isRecentlyActiveTeammate(teammate: Teammate): boolean {
+  if (!teammate.lastSeenAt) {
+    return false;
   }
+
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  return Date.now() - new Date(teammate.lastSeenAt).getTime() < thirtyDaysMs;
+}
+
+function updateTeammateModalMode(teammate?: Teammate) {
+  const titleEl = document.getElementById('teammate-modal-title');
+  const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement | null;
 
   if (!teammate) return;
 
   if (titleEl) {
     titleEl.textContent = teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname');
   }
-  if (nameInput) {
-    nameInput.disabled = true;
-    nameInput.value = getFriendIdentifier(teammate);
-  }
-  if (platformSelect) {
-    platformSelect.disabled = true;
-    platformSelect.value = teammate.platform;
-  }
   if (nicknameInput) nicknameInput.value = teammate.displayNickname || '';
-  if (enabledInput) enabledInput.checked = teammate.isPointsEnabled;
-  enabledGroup?.classList.add('hidden');
 }
 
-function openCreateTeammateModal() {
-  const form = document.getElementById('teammate-form') as HTMLFormElement | null;
-  const idInput = document.getElementById('teammate-id') as HTMLInputElement | null;
-
-  form?.reset();
-  if (idInput) idInput.value = '';
-  updateTeammateModalMode('create');
-  openModal('modal-teammate');
-}
-
-async function handleManualTeammateSync() {
-  const syncButton = document.getElementById('btn-new-teammate') as HTMLButtonElement | null;
-  const dashboardSyncButton = document.getElementById('btn-add-teammate') as HTMLButtonElement | null;
-  const settingsSyncButton = document.getElementById('btn-sync-friends-manual') as HTMLButtonElement | null;
+async function openRecentTeammatesModal() {
+  const triggerButtons = [
+    document.getElementById('btn-new-teammate') as HTMLButtonElement | null,
+    document.getElementById('btn-add-teammate') as HTMLButtonElement | null,
+    document.getElementById('btn-sync-friends-manual') as HTMLButtonElement | null,
+  ];
+  const listEl = document.getElementById('recent-teammates-list');
+  const emptyEl = document.getElementById('recent-teammates-empty');
 
   if (state.syncStatus?.isSyncing) return;
-  
-  // Check for valid API key before proceeding
-  if (!(await hasValidApiKey())) return;
 
   try {
-    if (syncButton) syncButton.disabled = true;
-    if (dashboardSyncButton) dashboardSyncButton.disabled = true;
-    if (settingsSyncButton) settingsSyncButton.disabled = true;
+    triggerButtons.forEach((button) => {
+      if (button) button.disabled = true;
+    });
+
+    if (listEl) {
+      listEl.innerHTML = '';
+      listEl.classList.add('hidden');
+    }
+    if (emptyEl) {
+      emptyEl.classList.remove('hidden');
+      emptyEl.textContent = t('friends.loadingRecentTeammates');
+    }
 
     const api = getAPI();
-    const result = await api.teammates.syncManual();
+    const candidates = await api.teammates.getRecentCandidates();
+    state.recentTeammateCandidates = candidates;
 
-    if (!result.success) {
-      showToast(result.error || t('sync.friendsFailed'), 'error');
+    if (!listEl || !emptyEl) {
       return;
     }
 
-    showToast(t('sync.friendsCompleted', {
-      count: result.syncedTeammates,
-      matches: result.scannedMatches,
-    }));
-    await Promise.all([loadDashboard(), loadTeammates()]);
+    if (candidates.length === 0) {
+      emptyEl.classList.remove('hidden');
+      emptyEl.textContent = t('friends.noRecentTeammates');
+      openModal('modal-recent-teammates');
+      return;
+    }
+
+    listEl.innerHTML = candidates.map((candidate, index) => `
+      <div class="recent-teammate-row">
+        <div class="recent-teammate-name">${escapeHtml(candidate.pubgPlayerName)}</div>
+        <button
+          type="button"
+          class="btn btn-primary"
+          data-recent-teammate-index="${index}"
+        >
+          ${t('friends.addRecentTeammate')}
+        </button>
+      </div>
+    `).join('');
+    emptyEl.classList.add('hidden');
+    listEl.classList.remove('hidden');
+    openModal('modal-recent-teammates');
   } catch (error) {
-    console.error('Failed to sync teammates manually:', error);
-    showToast(t('sync.friendsFailed'), 'error');
+    console.error('Failed to load recent teammates:', error);
+    showToast(t('toast.recentTeammatesLoadFailed'), 'error');
   } finally {
-    await loadAppStatus();
-    if (syncButton) syncButton.disabled = false;
-    if (dashboardSyncButton) dashboardSyncButton.disabled = false;
-    if (settingsSyncButton) settingsSyncButton.disabled = false;
-    setSyncNowButtonState();
+    triggerButtons.forEach((button) => {
+      if (button) button.disabled = false;
+    });
   }
+}
+
+function openManualFriendModal() {
+  const form = document.getElementById('manual-friend-form') as HTMLFormElement | null;
+  form?.reset();
+  openModal('modal-manual-friend');
 }
 
 async function loadSettings() {
@@ -480,14 +501,20 @@ async function handleLogout() {
 // State management
 export class AppState {
   teammates: Teammate[] = [];
+  recentTeammateCandidates: RecentTeammateCandidate[] = [];
   rules: PointRule[] = [];
   activeRule: PointRule | null = null;
   matches: Match[] = [];
   pointRecords: PointRecord[] = [];
   pointHistory: PointHistoryListItem[] = [];
   unsettledSummary: UnsettledBattleSummary | null = null;
+  selectedUnsettledRuleId: number | null = null;
   pendingSettleMatchId: string | null = null;
   pendingSettleTimerId: number | null = null;
+  expandedMatchLogId: string | null = null;
+  loadingMatchLogId: string | null = null;
+  matchLogDetails = new Map<string, MatchDetail>();
+  matchLogErrors = new Map<string, string>();
   syncStatus: SyncStatus | null = null;
   appStatus: AppStatus | null = null;
   gameProcessStatus: GameProcessStatus | null = null;
@@ -622,6 +649,25 @@ function formatSignedInteger(value: number): string {
   return `${rounded > 0 ? '+' : ''}${rounded.toLocaleString(state.locale)}`;
 }
 
+function syncSelectedUnsettledRuleId() {
+  const availableRuleIds = new Set(state.rules.map((rule) => rule.id));
+  const preferredRuleId = state.unsettledSummary?.ruleId ?? state.activeRule?.id ?? null;
+
+  if (preferredRuleId !== null && availableRuleIds.has(preferredRuleId)) {
+    state.selectedUnsettledRuleId = preferredRuleId;
+    return;
+  }
+
+  if (
+    state.selectedUnsettledRuleId !== null
+    && availableRuleIds.has(state.selectedUnsettledRuleId)
+  ) {
+    return;
+  }
+
+  state.selectedUnsettledRuleId = state.rules[0]?.id ?? null;
+}
+
 function formatDate(date: Date | string | null): string {
   if (!date) return t('common.never');
   const d = new Date(date);
@@ -670,6 +716,288 @@ function getHistoryMatchGroup(matchId: string) {
     (item): item is Extract<PointHistoryListItem, { type: 'match_group' }> =>
       item.type === 'match_group' && item.matchId === matchId,
   );
+}
+
+function getMatchLogPlayerKey(pubgAccountId: string | null, pubgPlayerName: string): string {
+  const trimmedAccountId = pubgAccountId?.trim();
+  if (trimmedAccountId) {
+    return `account:${trimmedAccountId}`;
+  }
+
+  return `name:${pubgPlayerName.trim().toLowerCase()}`;
+}
+
+function formatMatchDuration(startAt: Date | null, endAt: Date | null): string {
+  if (!startAt || !endAt) {
+    return '--';
+  }
+
+  const diffMs = endAt.getTime() - startAt.getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) {
+    return '--';
+  }
+
+  const totalMinutes = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function getTeamPlayersForMatchLog(detail: MatchDetail): MatchPlayer[] {
+  const selfPlayer = detail.players.find((player) => player.isSelf);
+  const teamId = selfPlayer?.teamId ?? null;
+  const players = teamId !== null
+    ? detail.players.filter((player) => player.teamId === teamId)
+    : [...detail.players];
+
+  return [...players]
+    .sort((left, right) => {
+      if (left.isSelf !== right.isSelf) {
+        return left.isSelf ? -1 : 1;
+      }
+
+      return right.kills - left.kills
+        || right.assists - left.assists
+        || right.damage - left.damage
+        || (left.placement ?? Number.MAX_SAFE_INTEGER) - (right.placement ?? Number.MAX_SAFE_INTEGER);
+    })
+    .slice(0, 4);
+}
+
+function buildReviveSummaryMap(detail: MatchDetail): Map<string, Array<{ victimLabel: string; count: number }>> {
+  const summaryMap = new Map<string, Map<string, { victimLabel: string; count: number }>>();
+
+  detail.reviveEvents.forEach((event) => {
+    const reviverKey = getMatchLogPlayerKey(event.reviverAccountId, event.reviverName || t('common.unknown'));
+    const victimKey = getMatchLogPlayerKey(event.victimAccountId, event.victimName || t('common.unknown'));
+    const reviverBucket = summaryMap.get(reviverKey) || new Map<string, { victimLabel: string; count: number }>();
+    const current = reviverBucket.get(victimKey);
+    if (current) {
+      current.count += 1;
+    } else {
+      reviverBucket.set(victimKey, {
+        victimLabel: event.victimName || t('common.unknown'),
+        count: 1,
+      });
+    }
+    summaryMap.set(reviverKey, reviverBucket);
+  });
+
+  return new Map(
+    Array.from(summaryMap.entries()).map(([key, bucket]) => [
+      key,
+      Array.from(bucket.values()).sort((left, right) => right.count - left.count || left.victimLabel.localeCompare(right.victimLabel, state.locale)),
+    ]),
+  );
+}
+
+function renderMatchLogPanel(matchId: string): string {
+  if (state.expandedMatchLogId !== matchId) return '';
+
+  if (state.loadingMatchLogId === matchId && !state.matchLogDetails.has(matchId)) {
+    return `<section class="match-log-panel loading"><div class="match-log-loading">${escapeHtml(t('matches.loadingLog'))}</div></section>`;
+  }
+
+  const error = state.matchLogErrors.get(matchId);
+  if (error) {
+    return `<section class="match-log-panel error"><div class="match-log-empty">${escapeHtml(error)}</div></section>`;
+  }
+
+  const detail = state.matchLogDetails.get(matchId);
+  if (!detail) {
+    return `<section class="match-log-panel empty"><div class="match-log-empty">${escapeHtml(t('matches.logUnavailable'))}</div></section>`;
+  }
+
+  const squadPlayers = getTeamPlayersForMatchLog(detail);
+  const reviveMap = buildReviveSummaryMap(detail);
+  const weaponsByPlayer = new Map<string, typeof detail.weaponStats>();
+  detail.weaponStats.forEach((s) => {
+    const k = getMatchLogPlayerKey(s.pubgAccountId, s.pubgPlayerName);
+    weaponsByPlayer.set(k, [...(weaponsByPlayer.get(k) || []), s].sort((a, b) => b.totalDamage - a.totalDamage));
+  });
+
+  const formatPlayer = (p: MatchPlayer | null) => {
+    if (!p) return `<article class="match-log-squad-card empty"><div class="match-log-squad-empty">${escapeHtml(t('detail.emptySlot'))}</div></article>`;
+    const key = getMatchLogPlayerKey(p.pubgAccountId, p.pubgPlayerName);
+    const weapons = weaponsByPlayer.get(key) || [];
+    const revives = reviveMap.get(key) || [];
+    const reviveHtml = p.revives > 0 ? `<details class="match-log-revive-details"><summary>${escapeHtml(t('detail.reviveDetails'))}</summary><ul>${revives.map((r) => `<li>${escapeHtml(r.victimLabel)} × ${formatInteger(r.count)}</li>`).join('')}</ul></details>` : '';
+    const selfTag = p.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : '';
+    const weaponHtml = weapons.length ? `<ul class="match-log-weapon-list">${weapons.map((w) => `<li><span>${escapeHtml(w.weaponName)}</span><strong>${formatInteger(w.totalDamage)}</strong></li>`).join('')}</ul>` : `<div class="match-log-empty-hint">${escapeHtml(t('detail.noWeaponDamage'))}</div>`;
+    return `
+      <article class="match-log-squad-card${p.isSelf ? ' self' : ''}">
+        <div class="match-log-squad-name">${escapeHtml(p.displayNicknameSnapshot || p.pubgPlayerName)}${selfTag}</div>
+        <dl class="match-log-squad-stats">
+          <div><dt>${escapeHtml(t('detail.kills'))}</dt><dd>${formatInteger(p.kills)}</dd></div>
+          <div><dt>${escapeHtml(t('detail.damage'))}</dt><dd>${formatInteger(p.damage)}</dd></div>
+          <div><dt>${escapeHtml(t('detail.assists'))}</dt><dd>${formatInteger(p.assists)}</dd></div>
+          <div><dt>${escapeHtml(t('detail.revives'))}</dt><dd>${formatInteger(p.revives)}</dd></div>
+        </dl>
+        <div class="match-log-weapon-section"><div class="match-log-subtitle">${escapeHtml(t('detail.weaponDamage'))}</div>${weaponHtml}</div>
+        ${reviveHtml}
+      </article>`;
+  };
+
+  const squadCards = Array.from({ length: 4 }, (_, i) => formatPlayer(squadPlayers[i] ?? null)).join('');
+  const selfPlacement = squadPlayers.find((p) => p.isSelf)?.placement ?? squadPlayers[0]?.placement ?? null;
+
+  const teammateKeys = new Set(squadPlayers.map((p) => getMatchLogPlayerKey(p.pubgAccountId, p.pubgPlayerName)));
+
+  interface ActivityEvent {
+    type: 'knock' | 'kill' | 'revive';
+    timestamp: Date | null;
+    actorName: string;
+    targetName: string;
+    actorAccountId: string | null;
+    targetAccountId: string | null;
+    extra?: string;
+  }
+
+  const events: ActivityEvent[] = [
+    ...detail.knockEvents.map((e) => ({
+      type: 'knock' as const,
+      timestamp: e.eventAt,
+      actorName: e.attackerName || t('common.unknown'),
+      targetName: e.victimName || t('common.unknown'),
+      actorAccountId: e.attackerAccountId,
+      targetAccountId: e.victimAccountId,
+      extra: e.damageCauserName || e.damageTypeCategory || undefined,
+    })),
+    ...detail.killEvents.map((e) => ({
+      type: 'kill' as const,
+      timestamp: e.eventAt,
+      actorName: e.killerName || t('common.unknown'),
+      targetName: e.victimName || t('common.unknown'),
+      actorAccountId: e.killerAccountId,
+      targetAccountId: e.victimAccountId,
+      extra: e.damageCauserName || e.damageTypeCategory || undefined,
+    })),
+    ...detail.reviveEvents.map((e) => ({
+      type: 'revive' as const,
+      timestamp: e.eventAt,
+      actorName: e.reviverName || t('common.unknown'),
+      targetName: e.victimName || t('common.unknown'),
+      actorAccountId: e.reviverAccountId,
+      targetAccountId: e.victimAccountId,
+    })),
+  ].sort((a, b) => (a.timestamp?.getTime() ?? Number.MAX_SAFE_INTEGER) - (b.timestamp?.getTime() ?? Number.MAX_SAFE_INTEGER));
+
+  const formatActivityEvent = (e: ActivityEvent): string => {
+    const actorKey = getMatchLogPlayerKey(e.actorAccountId, e.actorName);
+    const targetKey = getMatchLogPlayerKey(e.targetAccountId, e.targetName);
+    const actorIsTeammate = teammateKeys.has(actorKey);
+    const targetIsTeammate = teammateKeys.has(targetKey);
+
+    let highlightClass = 'match-log-activity-item';
+    if ((e.type === 'kill' || e.type === 'knock') && actorIsTeammate) {
+      highlightClass += ' teammate-kill';
+    } else if ((e.type === 'kill' || e.type === 'knock') && targetIsTeammate) {
+      highlightClass += ' teammate-death';
+    }
+
+    const timeStr = e.timestamp
+      ? e.timestamp.toLocaleTimeString(state.locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : '--:--:--';
+    const actionText = e.type === 'knock'
+      ? t('detail.activityKnocked')
+      : e.type === 'kill'
+        ? t('detail.activityKilled')
+        : t('detail.activityRevived');
+    const sentence = formatActivitySentenceParts({
+      locale: state.locale,
+      type: e.type,
+      actionText,
+      targetName: e.targetName,
+      extra: e.extra ?? null,
+    });
+
+    return `
+      <li class="${highlightClass}">
+        <div class="match-log-activity-time">${escapeHtml(timeStr)}</div>
+        <div class="match-log-activity-body">
+          <strong class="${actorIsTeammate ? 'match-log-activity-player match-log-activity-actor teammate' : 'match-log-activity-player match-log-activity-actor'}">${escapeHtml(e.actorName)}</strong>
+          <div class="match-log-activity-main">
+            <span class="match-log-activity-sentence">${escapeHtml(sentence.beforeTarget)}<strong class="${targetIsTeammate ? 'match-log-activity-player teammate' : 'match-log-activity-player'}">${escapeHtml(e.targetName)}</strong>${escapeHtml(sentence.afterTarget)}</span>
+          </div>
+        </div>
+      </li>
+    `;
+  };
+
+  const activityFeed = events.length > 0
+    ? `<ul class="match-log-activity-feed">${events.map(formatActivityEvent).join('')}</ul>`
+    : `<div class="match-log-empty-hint">${escapeHtml(t('detail.noActivityLog'))}</div>`;
+
+  const headerItem = (label: string, value: string) => `<div class="match-log-header-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  const badge = (label: string, value: string) => `<span class="badge badge-info">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+
+  return `
+    <section class="match-log-panel">
+      <div class="match-log-header-grid">
+        ${headerItem(t('detail.rank'), selfPlacement ? `#${formatInteger(selfPlacement)}` : '--')}
+        ${headerItem(t('detail.endTime'), formatDateTime(detail.match.matchEndAt || detail.match.playedAt))}
+        ${headerItem(t('detail.duration'), formatMatchDuration(detail.match.matchStartAt, detail.match.matchEndAt || detail.match.playedAt))}
+        ${headerItem(t('detail.matchId'), truncateMatchId(detail.match.matchId))}
+      </div>
+      <div class="match-log-meta-row">
+        ${badge(t('detail.map'), detail.match.mapName || t('common.unknown'))}
+        ${badge(t('detail.mode'), detail.match.gameMode || t('common.unknown'))}
+        ${badge(t('detail.status'), translateMatchStatus(detail.match.status))}
+      </div>
+      <div class="match-log-section">
+        <div class="match-log-section-label">${escapeHtml(t('detail.teamSummary'))}</div>
+        <div class="match-log-squad-grid">${squadCards}</div>
+      </div>
+      <div class="match-log-section">
+        <details class="match-log-activity-details">
+          <summary class="match-log-activity-summary">
+            <span class="match-log-section-label">${escapeHtml(t('detail.activityLog'))}</span>
+            <span class="match-log-activity-summary-count">${formatInteger(events.length)}</span>
+          </summary>
+          ${activityFeed}
+        </details>
+      </div>
+    </section>`;
+}
+
+async function toggleMatchLog(matchId: string) {
+  if (state.expandedMatchLogId === matchId) {
+    state.expandedMatchLogId = null;
+    renderMatchesList();
+    return;
+  }
+
+  state.expandedMatchLogId = matchId;
+  state.matchLogErrors.delete(matchId);
+  renderMatchesList();
+
+  if (state.matchLogDetails.has(matchId)) {
+    return;
+  }
+
+  state.loadingMatchLogId = matchId;
+  renderMatchesList();
+
+  try {
+    const api = getAPI();
+    const detail = await api.matches.getDetail(matchId);
+    if (!detail) {
+      state.matchLogErrors.set(matchId, t('matches.logUnavailable'));
+    } else {
+      state.matchLogDetails.set(matchId, detail);
+    }
+  } catch (error) {
+    console.error('Failed to load match log detail:', error);
+    state.matchLogErrors.set(matchId, t('toast.matchDetailsFailed'));
+  } finally {
+    if (state.loadingMatchLogId === matchId) {
+      state.loadingMatchLogId = null;
+    }
+    renderMatchesList();
+  }
 }
 
 function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
@@ -766,6 +1094,9 @@ function closeAllModals() {
   const modals = document.querySelectorAll('.modal');
   const teammateIdInput = document.getElementById('teammate-id') as HTMLInputElement | null;
   const pointNoteMatchIdInput = document.getElementById('point-note-match-id') as HTMLInputElement | null;
+  const manualFriendForm = document.getElementById('manual-friend-form') as HTMLFormElement | null;
+  const recentTeammatesList = document.getElementById('recent-teammates-list');
+  const recentTeammatesEmpty = document.getElementById('recent-teammates-empty');
   if (overlay) {
     overlay.classList.add('hidden');
   }
@@ -774,6 +1105,15 @@ function closeAllModals() {
   });
   if (teammateIdInput) teammateIdInput.value = '';
   if (pointNoteMatchIdInput) pointNoteMatchIdInput.value = '';
+  manualFriendForm?.reset();
+  if (recentTeammatesList) {
+    recentTeammatesList.innerHTML = '';
+    recentTeammatesList.classList.add('hidden');
+  }
+  if (recentTeammatesEmpty) {
+    recentTeammatesEmpty.textContent = t('friends.loadingRecentTeammates');
+    recentTeammatesEmpty.classList.remove('hidden');
+  }
   confirmCallback = null;
 }
 
@@ -896,8 +1236,9 @@ export function navigateTo(viewId: string) {
        loadMatches();
        break;
      case 'points':
-       loadPointRecords();
-       break;
+        loadRules();
+        loadPointRecords();
+        break;
      case 'settings':
        loadSettings();
        break;
@@ -1225,11 +1566,35 @@ function renderTeammatesList() {
   emptyEl.classList.add('hidden');
   listEl.classList.remove('hidden');
 
-  listEl.innerHTML = state.teammates.map(teammate => `
+  const sortedTeammates = [...state.teammates].sort((left, right) => {
+    const leftRecent = isRecentlyActiveTeammate(left);
+    const rightRecent = isRecentlyActiveTeammate(right);
+
+    if (leftRecent !== rightRecent) {
+      return leftRecent ? -1 : 1;
+    }
+
+    const leftSortTime = getTeammateLastPlayedMeta(left).sortTime;
+    const rightSortTime = getTeammateLastPlayedMeta(right).sortTime;
+    if (leftSortTime !== rightSortTime) {
+      return rightSortTime - leftSortTime;
+    }
+
+    return left.pubgPlayerName.localeCompare(right.pubgPlayerName, state.locale);
+  });
+
+  const recentTeammates = sortedTeammates.filter(isRecentlyActiveTeammate);
+  const inactiveTeammates = sortedTeammates.filter((teammate) => !isRecentlyActiveTeammate(teammate));
+
+  const renderTeammateCard = (teammate: Teammate) => {
+    const lastPlayedMeta = getTeammateLastPlayedMeta(teammate);
+    return `
     <div class="friend-row ${teammate.isPointsEnabled ? 'enabled' : 'disabled'}">
       <div class="friend-row-main">
-        <div class="friend-row-label">${teammate.pubgAccountId ? t('friends.playerId') : t('friends.playerIdentifier')}</div>
-        <div class="friend-row-value">${escapeHtml(getFriendIdentifier(teammate))}</div>
+        <div class="friend-row-label">${t('friends.playerName')}</div>
+        <div class="friend-row-value">${escapeHtml(teammate.pubgPlayerName)}</div>
+        <div class="friend-row-meta">${escapeHtml(lastPlayedMeta.label)}</div>
+        ${teammate.pubgAccountId ? `<div class="friend-row-meta">ID: ${escapeHtml(teammate.pubgAccountId)}</div>` : ''}
       </div>
       <div class="friend-row-main">
         <div class="friend-row-label">${t('friends.savedNickname')}</div>
@@ -1250,12 +1615,39 @@ function renderTeammatesList() {
             ${teammate.isPointsEnabled ? '' : `<span class="badge badge-warning">${escapeHtml(t('friends.notParticipating'))}</span>`}
           </div>
         </div>
-        <button type="button" class="btn btn-secondary" data-teammate-action="edit-nickname" data-teammate-id="${teammate.id}">
-          ${teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname')}
-        </button>
+        <div class="friend-action-row">
+          <button type="button" class="btn btn-secondary" data-teammate-action="edit-nickname" data-teammate-id="${teammate.id}">
+            ${teammate.displayNickname ? t('friends.editNickname') : t('friends.addNickname')}
+          </button>
+          <button type="button" class="btn btn-danger" data-teammate-action="delete" data-teammate-id="${teammate.id}">
+            ${t('friends.delete')}
+          </button>
+        </div>
       </div>
     </div>
-  `).join('');
+  `;
+  };
+
+  const renderSection = (title: string, teammates: Teammate[]) => {
+    if (teammates.length === 0) {
+      return '';
+    }
+
+    return `
+      <div class="friend-section">
+        <div class="friend-section-divider" aria-hidden="true"></div>
+        <div class="friend-section-title">${escapeHtml(title)}</div>
+        <div class="friend-section-list">
+          ${teammates.map(renderTeammateCard).join('')}
+        </div>
+      </div>
+    `;
+  };
+
+  listEl.innerHTML = [
+    renderSection(t('friends.sectionRecentActive'), recentTeammates),
+    renderSection(t('friends.sectionInactive'), inactiveTeammates),
+  ].join('');
 }
 
 // Rules view
@@ -1268,7 +1660,11 @@ async function loadRules() {
     ]);
     state.rules = rules;
     state.activeRule = activeRule;
+    syncSelectedUnsettledRuleId();
     renderRulesList();
+    if (getActiveViewId() === 'points') {
+      renderPointRecordsList();
+    }
   } catch (error) {
     console.error('Failed to load rules:', error);
     showToast(t('toast.rulesLoadFailed'), 'error');
@@ -1323,6 +1719,10 @@ async function loadMatches() {
     const api = getAPI();
     const matches = await api.matches.getAll(20, 0);
     state.matches = matches;
+    state.expandedMatchLogId = null;
+    state.loadingMatchLogId = null;
+    state.matchLogDetails.clear();
+    state.matchLogErrors.clear();
     renderMatchesList();
   } catch (error) {
     console.error('Failed to load matches:', error);
@@ -1347,16 +1747,24 @@ function renderMatchesList() {
   containerEl.classList.remove('hidden');
   
   listEl.innerHTML = state.matches.map(match => `
-    <tr>
+    <tr class="match-log-summary-row ${state.expandedMatchLogId === match.matchId ? 'expanded' : ''}">
       <td>${truncateMatchId(match.matchId)}</td>
       <td>${match.mapName || t('common.unknown')}</td>
       <td>${match.gameMode || t('common.unknown')}</td>
-      <td>${formatDateTime(match.playedAt)}</td>
+      <td>${formatDateTime(match.matchEndAt || match.playedAt)}</td>
       <td><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></td>
-      <td>
-        <button class="btn btn-secondary" onclick="viewMatchDetail('${match.matchId}')">${t('matches.view')}</button>
+      <td class="match-log-action-cell">
+        <div class="match-log-action-trigger ${state.expandedMatchLogId === match.matchId ? 'expanded' : ''}" data-match-action="toggle-log" data-match-id="${escapeHtml(match.matchId)}" tabindex="0" role="button" aria-expanded="${state.expandedMatchLogId === match.matchId ? 'true' : 'false'}">
+          <span class="match-log-action-label">${escapeHtml(t('matches.view'))}</span>
+          <span class="match-log-action-meta">${escapeHtml(state.expandedMatchLogId === match.matchId ? t('matches.hideLog') : t('matches.log'))}</span>
+        </div>
       </td>
     </tr>
+    ${state.expandedMatchLogId === match.matchId ? `
+      <tr class="match-log-detail-row">
+        <td colspan="6" class="match-log-detail-cell">${renderMatchLogPanel(match.matchId)}</td>
+      </tr>
+    ` : ''}
   `).join('');
 }
 
@@ -1370,6 +1778,7 @@ async function loadPointRecords() {
     ]);
     state.pointHistory = pointHistory;
     state.unsettledSummary = unsettledSummary;
+    syncSelectedUnsettledRuleId();
 
     if (
       state.pendingSettleMatchId
@@ -1393,10 +1802,22 @@ function renderPointRecordsList() {
   const unsettledPanelEl = document.getElementById('unsettled-summary-panel');
   const unsettledCountBadgeEl = document.getElementById('unsettled-count-badge');
   const unsettledRuleTextEl = document.getElementById('unsettled-rule-text');
+  const unsettledRuleSelectEl = document.getElementById('unsettled-rule-select') as HTMLSelectElement | null;
+  const recalculateUnsettledBtnEl = document.getElementById('btn-recalculate-unsettled') as HTMLButtonElement | null;
   const unsettledPlayersContainerEl = document.getElementById('unsettled-players-container');
   const matchHistoryListEl = document.getElementById('match-history-list');
 
-  if (!emptyEl || !containerEl || !unsettledPanelEl || !unsettledCountBadgeEl || !unsettledRuleTextEl || !unsettledPlayersContainerEl || !matchHistoryListEl) return;
+  if (
+    !emptyEl
+    || !containerEl
+    || !unsettledPanelEl
+    || !unsettledCountBadgeEl
+    || !unsettledRuleTextEl
+    || !unsettledRuleSelectEl
+    || !recalculateUnsettledBtnEl
+    || !unsettledPlayersContainerEl
+    || !matchHistoryListEl
+  ) return;
 
   if (state.pointHistory.length === 0) {
     emptyEl.classList.remove('hidden');
@@ -1411,6 +1832,18 @@ function renderPointRecordsList() {
   const activeRuleLabel = unsettledSummary?.activeRuleName ?? '--';
   unsettledRuleTextEl.textContent = `${t('points.ruleName')}: ${activeRuleLabel}`;
   unsettledCountBadgeEl.textContent = `${t('points.unsettledMatches')}: ${unsettledSummary?.unsettledMatchCount ?? 0}`;
+
+  unsettledRuleSelectEl.innerHTML = state.rules.map((rule) => `
+    <option value="${rule.id}">${escapeHtml(rule.name)}</option>
+  `).join('');
+
+  if (state.selectedUnsettledRuleId !== null) {
+    unsettledRuleSelectEl.value = state.selectedUnsettledRuleId.toString();
+  }
+
+  const hasUnsettledMatches = (unsettledSummary?.unsettledMatchCount ?? 0) > 0;
+  unsettledRuleSelectEl.disabled = state.rules.length === 0;
+  recalculateUnsettledBtnEl.disabled = !hasUnsettledMatches || state.selectedUnsettledRuleId === null;
 
   if (!unsettledSummary || unsettledSummary.players.length === 0) {
     unsettledPlayersContainerEl.innerHTML = `<div class="points-summary-empty text-muted">${escapeHtml(t('points.unsettledEmpty'))}</div>`;
@@ -1612,6 +2045,32 @@ async function handleSettleMatch(matchId: string) {
   }
 }
 
+async function handleRecalculateUnsettledMatches() {
+  const ruleId = state.selectedUnsettledRuleId;
+  if (ruleId === null || (state.unsettledSummary?.unsettledMatchCount ?? 0) === 0) {
+    return;
+  }
+
+  openConfirmModal(
+    t('confirm.pointRecalculate.title'),
+    t('confirm.pointRecalculate.message'),
+    t('confirm.pointRecalculate.confirm'),
+    async () => {
+      try {
+        const api = getAPI();
+        await api.points.recalculateUnsettled({ ruleId });
+        await Promise.all([loadRules(), loadPointRecords(), loadDashboard()]);
+        showToast(t('toast.pointRecalculated'));
+      } catch (error) {
+        console.error('Failed to recalculate unsettled matches:', error);
+        showToast(t('toast.pointRecalculateFailed'), 'error');
+      }
+    },
+    'btn-secondary',
+    'warning'
+  );
+}
+
 async function handleToggleTeammateParticipation(teammateId: number, isEnabled: boolean) {
   try {
     const api = getAPI();
@@ -1639,43 +2098,82 @@ async function handleTeammateSubmit(e: Event) {
   
   const form = e.target as HTMLFormElement;
   const idInput = document.getElementById('teammate-id') as HTMLInputElement;
-  const nameInput = document.getElementById('teammate-name') as HTMLInputElement;
-  const platformInput = document.getElementById('teammate-platform') as HTMLSelectElement;
   const nicknameInput = document.getElementById('teammate-nickname') as HTMLInputElement;
-  const enabledInput = document.getElementById('teammate-enabled') as HTMLInputElement;
   
   try {
     const api = getAPI();
-    
-    if (idInput.value) {
-      // Update existing
-      await api.teammates.update({
-        id: parseInt(idInput.value, 10),
-        displayNickname: nicknameInput.value || null,
-        isPointsEnabled: enabledInput.checked,
-      });
-      showToast(t('toast.friendSaved'));
-    } else {
-      // Create new
-      if (!isPlatformValue(platformInput.value)) {
-        throw new Error('Invalid platform');
-      }
+    if (!idInput.value) return;
 
-      await api.teammates.create({
-        platform: platformInput.value,
-        pubgAccountId: null,
-        pubgPlayerName: nameInput.value,
-        displayNickname: nicknameInput.value || null,
-        isPointsEnabled: enabledInput.checked,
-      });
-      showToast(t('toast.friendAdded'));
-    }
+    await api.teammates.update({
+      id: parseInt(idInput.value, 10),
+      displayNickname: nicknameInput.value || null,
+    });
+    showToast(t('toast.friendSaved'));
     
     closeAllModals();
     form.reset();
     await Promise.all([loadTeammates(), loadDashboard()]);
   } catch (error) {
     console.error('Failed to save teammate:', error);
+    showToast(t('toast.friendSaveFailed'), 'error');
+  }
+}
+
+async function handleManualFriendSubmit(e: Event) {
+  e.preventDefault();
+
+  const form = e.target as HTMLFormElement;
+  const nameInput = document.getElementById('manual-friend-name') as HTMLInputElement | null;
+
+  try {
+    const api = getAPI();
+    const activeAccount = await api.accounts.getActive();
+    const playerName = nameInput?.value.trim() ?? '';
+
+    if (!activeAccount || !playerName) {
+      return;
+    }
+
+    await api.teammates.create({
+      platform: activeAccount.selfPlatform,
+      pubgAccountId: null,
+      pubgPlayerName: playerName,
+      isPointsEnabled: false,
+    });
+
+    closeAllModals();
+    form.reset();
+    showToast(t('toast.friendAdded'));
+    await Promise.all([loadTeammates(), loadDashboard()]);
+  } catch (error) {
+    console.error('Failed to add manual friend:', error);
+    showToast(t('toast.friendSaveFailed'), 'error');
+  }
+}
+
+async function handleAddRecentTeammate(index: number) {
+  const candidate = state.recentTeammateCandidates[index];
+  if (!candidate || candidate.isFriend) {
+    return;
+  }
+
+  try {
+    const api = getAPI();
+    await api.teammates.create({
+      platform: candidate.platform,
+      pubgAccountId: candidate.pubgAccountId,
+      pubgPlayerName: candidate.pubgPlayerName,
+      isPointsEnabled: false,
+    });
+
+    state.recentTeammateCandidates = state.recentTeammateCandidates.map((entry, entryIndex) => (
+      entryIndex === index ? { ...entry, isFriend: true } : entry
+    ));
+    showToast(t('toast.friendAdded'));
+    closeAllModals();
+    await Promise.all([loadTeammates(), loadDashboard()]);
+  } catch (error) {
+    console.error('Failed to add recent teammate:', error);
     showToast(t('toast.friendSaveFailed'), 'error');
   }
 }
@@ -1856,12 +2354,33 @@ window.editTeammateNickname = async (id: number) => {
     const idInput = document.getElementById('teammate-id') as HTMLInputElement | null;
     
     if (idInput) idInput.value = teammate.id.toString();
-    updateTeammateModalMode('nickname', teammate);
+    updateTeammateModalMode(teammate);
     openModal('modal-teammate');
   } catch (error) {
     console.error('Failed to load teammate:', error);
     showToast(t('toast.friendDetailsFailed'), 'error');
   }
+};
+
+window.deleteTeammate = async (id: number) => {
+  openConfirmModal(
+    t('confirm.friendDelete.title'),
+    t('confirm.friendDelete.message'),
+    t('confirm.friendDelete.confirm'),
+    async () => {
+      try {
+        const api = getAPI();
+        await api.teammates.delete(id);
+        showToast(t('toast.friendDeleted'));
+        await Promise.all([loadTeammates(), loadDashboard(), loadPointRecords()]);
+      } catch (error) {
+        console.error('Failed to delete friend:', error);
+        showToast(t('toast.friendDeleteFailed'), 'error');
+      }
+    },
+    'btn-danger',
+    'danger'
+  );
 };
 
 window.editRule = async (id: number) => {
@@ -1927,75 +2446,6 @@ window.deleteRule = async (id: number) => {
   );
 };
 
-window.viewMatchDetail = async (matchId: string) => {
-  try {
-    const api = getAPI();
-    const [match, players] = await Promise.all([
-      api.matches.getById(matchId),
-      api.matches.getPlayers(matchId),
-    ]);
-    
-    if (!match) return;
-    
-    const contentEl = document.getElementById('match-detail-content');
-    if (!contentEl) return;
-    
-    contentEl.innerHTML = `
-      <div class="status-grid" style="margin-bottom: 1.5rem;">
-        <div class="status-item">
-          <span class="status-label">${t('detail.matchId')}</span>
-          <span class="status-value">${match.matchId}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">${t('detail.map')}</span>
-          <span class="status-value">${match.mapName || t('common.unknown')}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">${t('detail.mode')}</span>
-          <span class="status-value">${match.gameMode || t('common.unknown')}</span>
-        </div>
-        <div class="status-item">
-          <span class="status-label">${t('detail.status')}</span>
-          <span class="status-value"><span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span></span>
-        </div>
-      </div>
-      
-      ${players.length > 0 ? `
-        <h4 style="margin-bottom: 1rem;">${t('detail.players')}</h4>
-        <div class="table-wrapper">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>${t('detail.player')}</th>
-                <th>${t('detail.damage')}</th>
-                <th>${t('detail.kills')}</th>
-                <th>${t('detail.revives')}</th>
-                 <th>${t('detail.points')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${players.map(p => `
-                <tr>
-                  <td>${p.displayNicknameSnapshot || p.pubgPlayerName}</td>
-                  <td>${p.damage.toLocaleString()}</td>
-                  <td>${p.kills}</td>
-                  <td>${p.revives}</td>
-                  <td class="text-success">${formatPoints(p.points)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </div>
-      ` : `<p class="text-muted">${t('detail.noPlayerData')}</p>`}
-    `;
-    
-    openModal('modal-match-detail');
-  } catch (error) {
-    console.error('Failed to load match details:', error);
-    showToast(t('toast.matchDetailsFailed'), 'error');
-  }
-};
-
 /**
  * Custom Dropdown Initialization
  * Converts native <select> elements into styled custom dropdowns
@@ -2026,6 +2476,7 @@ function initCustomDropdowns() {
   document.querySelectorAll('select.form-select').forEach(selectEl => {
     const select = selectEl as HTMLSelectElement;
     if (select.closest('.custom-dropdown')) return; // Already initialized
+    if (select.classList.contains('native-select')) return; // Opt-out of custom dropdown
 
     // Create wrapper
     const wrapper = document.createElement('div');
@@ -2327,15 +2778,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     
     document.getElementById('btn-add-teammate')?.addEventListener('click', () => {
-      void handleManualTeammateSync();
+      void openRecentTeammatesModal();
     });
     
     document.getElementById('btn-new-teammate')?.addEventListener('click', () => {
-      void handleManualTeammateSync();
+      void openRecentTeammatesModal();
     });
-    
-    document.getElementById('btn-empty-add-teammate')?.addEventListener('click', () => {
-      openCreateTeammateModal();
+
+    document.getElementById('btn-manual-friend')?.addEventListener('click', () => {
+      openManualFriendModal();
     });
     
     document.getElementById('btn-new-rule')?.addEventListener('click', () => {
@@ -2392,14 +2843,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
+      if (target.dataset.teammateAction === 'delete') {
+        void window.deleteTeammate?.(teammateId);
+        return;
+      }
+
       if (target.dataset.teammateAction === 'toggle-participation') {
         const isEnabled = target.dataset.teammateEnabled === '1';
         void handleToggleTeammateParticipation(teammateId, !isEnabled);
       }
     });
 
+    document.getElementById('recent-teammates-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-recent-teammate-index]');
+      if (!target || target.disabled) {
+        return;
+      }
+
+      const index = Number.parseInt(target.dataset.recentTeammateIndex ?? '', 10);
+      if (!Number.isFinite(index)) {
+        return;
+      }
+
+      void handleAddRecentTeammate(index);
+    });
+
     document.getElementById('match-history-list')?.addEventListener('click', (event) => {
-      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-points-action][data-match-id]');
+      const target = (event.target as HTMLElement).closest<HTMLElement>('[data-points-action][data-match-id]');
       if (!target) {
         return;
       }
@@ -2418,13 +2888,49 @@ document.addEventListener('DOMContentLoaded', async () => {
         void handleSettleMatch(matchId);
       }
     });
-    
+
+    document.getElementById('matches-list')?.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLElement>('[data-match-action="toggle-log"][data-match-id]');
+      const matchId = target?.dataset.matchId;
+      if (!target || !matchId) {
+        return;
+      }
+
+      void toggleMatchLog(matchId);
+    });
+
+    document.getElementById('matches-list')?.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      const target = (event.target as HTMLElement).closest<HTMLElement>('[data-match-action="toggle-log"][data-match-id]');
+      const matchId = target?.dataset.matchId;
+      if (!target || !matchId) {
+        return;
+      }
+
+      event.preventDefault();
+      void toggleMatchLog(matchId);
+    });
+
+    document.getElementById('unsettled-rule-select')?.addEventListener('change', (event) => {
+      const value = Number.parseInt((event.target as HTMLSelectElement).value, 10);
+      state.selectedUnsettledRuleId = Number.isNaN(value) ? null : value;
+      renderPointRecordsList();
+    });
+
+    document.getElementById('btn-recalculate-unsettled')?.addEventListener('click', () => {
+      void handleRecalculateUnsettledMatches();
+    });
+
     document.getElementById('btn-empty-sync-matches')?.addEventListener('click', () => {
       openModal('modal-sync');
     });
     
     // Form submissions
 document.getElementById('teammate-form')?.addEventListener('submit', handleTeammateSubmit);
+document.getElementById('manual-friend-form')?.addEventListener('submit', handleManualFriendSubmit);
 document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
 document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
 document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
@@ -2432,7 +2938,9 @@ document.getElementById('language-settings-form')?.addEventListener('submit', ha
 document.getElementById('account-settings-form')?.addEventListener('submit', handleAccountSettingsSubmit);
 document.getElementById('api-key-settings-form')?.addEventListener('submit', handleApiKeySettingsSubmit);
 document.getElementById('point-note-form')?.addEventListener('submit', handlePointNoteSubmit);
-     document.getElementById('btn-sync-friends-manual')?.addEventListener('click', handleManualTeammateSync);
+     document.getElementById('btn-sync-friends-manual')?.addEventListener('click', () => {
+       void openRecentTeammatesModal();
+     });
      document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
     
   } catch (error) {
