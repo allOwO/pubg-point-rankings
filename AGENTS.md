@@ -1,28 +1,35 @@
 # AGENTS.md
 
 ## Purpose
-Guidance for coding agents working in this repository.
-This repo is **Tauri-first**: Rust backend in `src-tauri/`, vanilla TS renderer in `packages/renderer/`, shared contracts in `packages/shared/`, and legacy TS reference code in `packages/main/`.
+Repository guidance for agentic coding tools working in this project.
+This app is **Tauri-first**: Rust backend in `src-tauri/`, vanilla TypeScript renderer in `packages/renderer/`, shared contracts in `packages/shared/`, and legacy/reference Node code in `packages/main/`.
+
+## Rule sources checked
+- No `.cursor/rules/` directory found.
+- No `.cursorrules` file found.
+- No `.github/copilot-instructions.md` file found.
+- If any of those files are added later, treat them as additional repository instructions.
 
 ## Architecture snapshot
 ```text
 pubg-point-rankings/
-├── src-tauri/            # Active Rust backend + Tauri host
-├── packages/renderer/    # Active frontend (vanilla TS + Vite)
-├── packages/shared/      # Shared TS types + Zod schemas
-├── packages/main/        # Legacy TS backend reference/tests
-├── docs/                 # Product + migration docs
-└── README.md
+├── src-tauri/            # Live backend, DB, sync, telemetry, Tauri commands
+├── packages/renderer/    # Live frontend (vanilla TS + Vite bundle)
+├── packages/shared/      # Shared TS types + Zod schemas + contracts
+├── packages/main/        # Legacy/reference TS implementation + tests
+├── docs/                 # Product, API, migration, and data notes
+└── AGENTS.md             # This file
 ```
 
-### Active vs legacy
-- `src-tauri/` is the live backend.
-- `packages/renderer/` is the live UI.
-- `packages/shared/` is the shared contract layer.
-- `packages/main/` is migration/reference code; do not treat it as the runtime path unless explicitly porting behavior.
+## Runtime ownership
+- `src-tauri/` is the production backend.
+- `packages/renderer/` is the production UI.
+- `packages/shared/` is the single source of truth for cross-layer TS shapes.
+- `packages/main/` is **not** the active runtime path; use it for tests, reference behavior, and migration comparison only.
 
 ## Build / lint / test commands
-### Root
+
+### Root commands
 ```bash
 npm install
 npm run dev
@@ -33,40 +40,41 @@ npm run tauri:build
 npm run package
 ```
 
-### Package-specific
+### Workspace-specific commands
 ```bash
 npm run build --workspace @pubg-point-rankings/shared
 npm run build --workspace @pubg-point-rankings/main
 npm run build --workspace @pubg-point-rankings/renderer
 npm run typecheck --workspace @pubg-point-rankings/renderer
+npm run dev --workspace @pubg-point-rankings/renderer
 ```
 
-### Rust backend
+### Rust backend commands
 ```bash
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-### Tauri packaging / icons
+### Packaging / icon commands
 ```bash
 ./node_modules/.bin/tauri icon "src-tauri/icons/icon.png" -o "src-tauri/icons"
 ./node_modules/.bin/tauri build --bundles app
 ```
 
-### Lint status
+### Lint reality
 - `npm run lint` is a placeholder only.
-- Real verification is `npm run typecheck`, `cargo check`, `cargo test`, and `npm run build`.
+- Real verification is `npm run typecheck`, `npm run build`, `cargo check`, and `cargo test`.
 
 ## Running a single test
-### Rust
-`cargo test` supports substring filtering:
+
+### Rust: single test by substring
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml scheduler
 cargo test --manifest-path src-tauri/Cargo.toml parses_and_aggregates_basic_stats
 ```
 
-### Legacy Node tests
-Root tests run compiled JS from `packages/main/dist`, so build first:
+### Legacy Node tests: single file / single case
+Root `npm test` runs compiled JS from `packages/main/dist`, so build first.
 ```bash
 npm run build --workspace @pubg-point-rankings/main
 node --test "packages/main/dist/engine/calculator.test.js"
@@ -74,75 +82,85 @@ node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 ```
 
 ## Expected verification before finishing
-- If Rust changed: run `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`
-- If renderer/shared TS changed: run `npm run typecheck` and `npm run build`
-- If cross-layer behavior changed: run all four
+- If Rust changed: run `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+- If renderer or shared TS changed: run `npm run typecheck` and `npm run build`.
+- If shared contracts changed: verify `packages/shared`, renderer hydration, and Tauri command DTOs together.
+- If sync / parsing / DB behavior changed: run all four (`typecheck`, `build`, `cargo check`, `cargo test`).
 
 ## Code style guidelines
+
 ### General
-- Keep changes minimal and aligned with existing patterns.
-- Prefer extending the current layers over inventing new ones.
-- Preserve the Tauri-first architecture.
-- Do not reintroduce Electron/Overwolf runtime assumptions into active code.
+- Keep changes minimal, local, and aligned with existing structure.
+- Extend current layers before inventing new abstractions.
+- Avoid mixing points-page UI with matches-page UI; keep page ownership clear.
+- Preserve the Tauri-first architecture; do not reintroduce Electron/Overwolf assumptions into active code.
 
 ### Imports
-- TypeScript: ES imports, external before workspace imports, use `import type` where appropriate.
-- Rust: group `std` imports first, then crate/external imports.
-- Remove unused imports.
+- TypeScript: ES module syntax, external imports before workspace imports, use `import type` when possible.
+- Rust: group `std` imports first, then external crates, then crate-local modules.
+- Remove unused imports immediately.
 
 ### Formatting
 - TypeScript uses semicolons and single quotes.
-- Keep object literals/DTOs readable and vertically aligned.
-- Rust should follow `rustfmt` defaults and existing `serde` style.
-- Keep Markdown/HTML readable; avoid collapsing structured markup into one-liners.
+- Prefer readable multiline objects/DTOs over dense inline blobs.
+- Rust should follow `rustfmt` defaults.
+- HTML/Markdown should remain structured and scannable.
+- Do not compress complex renderer templates into unreadable one-liners unless it clearly reduces duplication.
 
 ### Types
 - Prefer explicit types and existing interfaces.
 - Never use `any`, `as any`, `@ts-ignore`, or `@ts-expect-error`.
-- Keep `packages/shared/src/types.ts` and `schemas.ts` aligned.
-- In renderer adapters, hydrate string dates to `Date` centrally rather than scattering conversions.
+- Keep `packages/shared/src/types.ts` and `packages/shared/src/schemas.ts` aligned.
+- Centralize renderer date hydration in `packages/renderer/src/tauri-api.ts`.
 
 ### Naming
-- TypeScript: `camelCase` for values/functions, `PascalCase` for interfaces/types.
+- TypeScript: `camelCase` for values/functions, `PascalCase` for interfaces/types/classes.
 - Rust: `snake_case` for functions/modules, `PascalCase` for structs/enums.
-- Tauri commands stay `snake_case`; use `rename_all = "camelCase"` only for argument shape needs.
-- DB/app setting keys use lowercase `snake_case` strings.
+- Tauri commands stay `snake_case`; use `rename_all = "camelCase"` only for argument/response shape bridging.
+- DB keys and app setting keys should stay lowercase `snake_case`.
 
 ### Error handling
-- Rust repositories/services should return `Result<_, AppError>`.
-- Tauri commands should convert backend failures into `ErrorPayload`.
-- Renderer async flows should log errors and show a user-visible toast when appropriate.
-- Do not swallow errors and do not use empty catch blocks.
+- Rust repository/service APIs should return `Result<_, AppError>`.
+- Tauri commands should translate failures into `ErrorPayload`.
+- Renderer async actions should `console.error(...)` and show a toast when the user should know about the failure.
+- No empty catch blocks, silent fallbacks, or swallowed parse errors.
 
 ### Data / domain rules
-- Use repositories for routine DB access; avoid raw SQL in commands/UI.
-- Preserve snapshot columns and historical semantics.
-- User-facing points remain **integers**; do not turn scoring state into floats.
+- Use repositories for DB access; do not put SQL into commands or renderer code.
+- Preserve snapshot columns and historical payout semantics.
+- User-facing points remain integers.
+- Prefer `/matches` + telemetry data for PUBG enrichment work; avoid expanding to other rate-limited APIs unless required.
 
 ### Renderer rules
 - Treat `index.html` IDs/classes as a hard contract with `app.ts`.
-- Keep UI state in the existing `AppState` flow rather than adding ad hoc globals.
-- Renderer should go through `tauri-api.ts`; do not spread direct Tauri calls everywhere.
-- Do not import backend-only modules into renderer.
+- Keep state in `AppState` and page-specific helpers; avoid ad hoc globals.
+- All backend calls go through `tauri-api.ts`.
+- Keep points page and matches page separate in markup, i18n keys, and styles.
+- Prefer deleting dead modal/DOM paths instead of preserving unused UI.
 
 ### Backend rules
-- Keep command handlers thin; business logic belongs in services/runtime/repository layers.
-- Keep process detection ordinary and non-invasive.
-- Never add memory reading, DLL injection, packet capture, hooks, or anything anti-cheat-risky.
-- Scheduler/runtime code must not perform recent-match checks in `not_running`.
+- Keep command handlers thin; business logic belongs in services/repositories/parsers.
+- Scheduler/runtime logic must not do recent-match checks in `not_running`.
+- Process detection must stay ordinary and non-invasive.
+- Never add anti-cheat-risky features: memory reading, DLL injection, packet capture, hooks, overlays, or similar.
 
 ## Project-specific anti-patterns
-- Do not invent new cross-layer contracts outside `packages/shared` unless migration requires it.
+- Do not invent cross-layer contracts outside `packages/shared` unless migration demands it.
 - Do not bypass `packages/shared/src/types.ts` for shared shapes.
-- Do not put business logic into renderer DOM handlers.
-- Do not rewire packaging away from current Tauri entrypoints.
-- Do not assume `packages/main` is the live backend.
+- Do not place business logic in renderer DOM handlers.
+- Do not treat `packages/main` as the live backend.
+- Do not let renderer page features drift into each other through shared state or shared labels.
+
+## Recent modifications worth remembering
+- Match detail/log enrichment now relies primarily on `/matches` and telemetry.
+- Match ordering should use `match_end_at DESC` with local DB index support; keep that behavior when editing queries/migrations.
+- Recent match sync uses bounded concurrent remote fetching; preserve concurrency limits and sequential DB persistence.
+- Match log UI now belongs to the **matches page only**.
+- Points page should remain focused on settlement, history, and unsettled-summary behavior only.
 
 ## Practical notes for agents
-- Read adjacent code before changing pattern-heavy files.
-- `packages/renderer/src/app.ts` is large; prefer helper extraction over adding more branching.
-- When porting logic from `packages/main` to Rust, preserve behavior first and refactor second.
-- If you change a shared type, inspect `schemas.ts`, renderer hydration, and related command DTOs in the same pass.
-- If you change sync or polling behavior, review scheduler state transitions and UI status display together.
-- Tauri app icons are driven by `src-tauri/tauri.conf.json` `bundle.icon`; for macOS the critical asset is `src-tauri/icons/icon.icns`.
-- If the macOS app still shows a generic/default icon after a correct rebuild, suspect local icon cache before changing code/config again; minimally refresh with `killall Dock` and `killall Finder`.
+- Read adjacent code before editing pattern-heavy files.
+- `packages/renderer/src/app.ts` is large; prefer small helpers or deletion of duplication over piling on branches.
+- If you change a shared type, inspect `schemas.ts`, renderer hydration, and related Tauri command DTOs in one pass.
+- If you touch sync or telemetry parsing, review parsing tests and DB persistence together.
+- If macOS app icon work appears correct but the app still shows a generic icon, suspect local icon cache before changing code again; try refreshing Dock/Finder.
