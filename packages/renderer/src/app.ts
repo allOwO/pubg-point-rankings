@@ -8,6 +8,7 @@ import {
   type TranslationKey,
 } from './i18n';
 import { formatActivitySentenceParts } from './match-log-activity';
+import { getMatchListBattleDelta, getMatchListPlacement } from './matches-list';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -532,6 +533,8 @@ export class AppState {
   rules: PointRule[] = [];
   activeRule: PointRule | null = null;
   matches: Match[] = [];
+  matchPlacements = new Map<string, number | null>();
+  matchBattleDeltas = new Map<string, number | null>();
   pointRecords: PointRecord[] = [];
   pointHistory: PointHistoryListItem[] = [];
   unsettledSummary: UnsettledBattleSummary | null = null;
@@ -584,13 +587,14 @@ function buildDashboardRecentMatchRow(detail: MatchWithPlayers): DashboardRecent
     isSelf: player.isSelf,
   });
 
-  const squad = detail.players
+  const squadPlayers = detail.players
     .filter((player) => player.teamId === selfPlayer.teamId)
     .sort((left, right) => {
       if (left.isSelf !== right.isSelf) return left.isSelf ? -1 : 1;
       return right.kills - left.kills || right.damage - left.damage || right.assists - left.assists;
-    })
-    .map(toRow);
+    });
+
+  const squad = squadPlayers.map(toRow);
 
   return {
     matchId: detail.match.matchId,
@@ -1514,28 +1518,19 @@ function renderDashboardUnsettledSummary() {
 
   if (!configEl || !playersEl || !ruleTextEl || !countBadgeEl) return;
 
+  configEl.innerHTML = '';
+  configEl.classList.add('hidden');
+
   const unsettledSummary = state.unsettledSummary;
 
-  ruleTextEl.textContent = `${t('points.ruleName')}: ${unsettledSummary?.activeRuleName ?? '--'}`;
+  ruleTextEl.textContent = unsettledSummary?.activeRuleName ?? '--';
   countBadgeEl.textContent = `${t('points.unsettledMatches')}: ${unsettledSummary?.unsettledMatchCount ?? 0}`;
 
   if (!unsettledSummary || unsettledSummary.players.length === 0) {
-    configEl.innerHTML = `
-      <div class="dashboard-readonly-field">
-        <span class="dashboard-readonly-label">${escapeHtml(t('points.ruleName'))}</span>
-        <span class="dashboard-readonly-value">--</span>
-      </div>
-    `;
     playersEl.innerHTML = `<div class="points-summary-empty text-muted">${escapeHtml(t('points.unsettledEmpty'))}</div>`;
     return;
   }
 
-  configEl.innerHTML = `
-    <div class="dashboard-readonly-field">
-      <span class="dashboard-readonly-label">${escapeHtml(t('points.ruleName'))}</span>
-      <span class="dashboard-readonly-value">${escapeHtml(unsettledSummary.activeRuleName ?? '--')}</span>
-    </div>
-  `;
   playersEl.innerHTML = unsettledSummary.players.map((player) => {
     const displayName = escapeHtml(player.displayNickname || player.pubgPlayerName);
     const deltaClass = player.totalDelta > 0 ? 'positive' : player.totalDelta < 0 ? 'negative' : 'zero';
@@ -1807,6 +1802,42 @@ async function loadMatches() {
     const api = getAPI();
     const matches = await api.matches.getAll(20, 0);
     state.matches = matches;
+    state.matchPlacements.clear();
+    state.matchBattleDeltas.clear();
+
+    const summaries = await Promise.all(
+      matches.map(async (match) => {
+        try {
+          const players = await api.matches.getPlayers(match.matchId);
+          const candidates = players.map((player) => ({
+            matchPlayerId: player.id,
+            isSelf: player.isSelf,
+            isPointsEnabled: player.isPointsEnabledSnapshot,
+            placement: player.placement,
+            points: player.points,
+          }));
+
+          return {
+            matchId: match.matchId,
+            placement: getMatchListPlacement(candidates),
+            delta: getMatchListBattleDelta(candidates),
+          };
+        } catch (error) {
+          console.error(`Failed to load players for match ${match.matchId}:`, error);
+          return {
+            matchId: match.matchId,
+            placement: null,
+            delta: null,
+          };
+        }
+      }),
+    );
+
+    for (const summary of summaries) {
+      state.matchPlacements.set(summary.matchId, summary.placement);
+      state.matchBattleDeltas.set(summary.matchId, summary.delta);
+    }
+
     state.expandedMatchLogId = null;
     state.loadingMatchLogId = null;
     state.matchLogDetails.clear();
@@ -1833,10 +1864,23 @@ function renderMatchesList() {
   
   emptyEl.classList.add('hidden');
   containerEl.classList.remove('hidden');
+
+  const renderMatchRankSummary = (matchId: string) => {
+    const placement = state.matchPlacements.get(matchId);
+    const delta = state.matchBattleDeltas.get(matchId);
+    const rankText = placement != null ? `#${formatInteger(placement)}` : '--';
+
+    if (delta === null || delta === undefined) {
+      return `<span class="match-rank">${rankText}</span>`;
+    }
+
+    const deltaClass = delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'zero';
+    return `<span class="match-rank-summary"><span class="match-rank">${rankText}</span><span class="match-delta ${deltaClass}">${escapeHtml(formatSignedInteger(delta))}</span></span>`;
+  };
   
   listEl.innerHTML = state.matches.map(match => `
     <tr class="match-log-summary-row ${state.expandedMatchLogId === match.matchId ? 'expanded' : ''}">
-      <td>${truncateMatchId(match.matchId)}</td>
+      <td>${renderMatchRankSummary(match.matchId)}</td>
       <td>${match.mapName || t('common.unknown')}</td>
       <td>${match.gameMode || t('common.unknown')}</td>
       <td>${formatDateTime(match.matchEndAt || match.playedAt)}</td>

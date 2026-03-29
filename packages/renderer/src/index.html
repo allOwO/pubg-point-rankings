@@ -151,15 +151,14 @@
           <div class="dashboard-layout">
             <div class="card card-wide dashboard-unsettled-card" id="dashboard-unsettled-panel">
               <div class="card-header">
-                <div>
+                <div class="dashboard-unsettled-header-inline">
                   <h3 data-i18n="points.unsettledPanelTitle">Unsettled Summary</h3>
-                  <p class="dashboard-card-subtitle">
+                  <span class="dashboard-unsettled-summary-inline">
                     <span id="dashboard-unsettled-rule-text">--</span>
                     <span aria-hidden="true"> · </span>
                     <span id="dashboard-unsettled-count-badge">0</span>
-                  </p>
+                  </span>
                 </div>
-                <span class="badge badge-info" data-i18n="dashboard.readOnly">Read Only</span>
               </div>
               <div class="card-body">
                 <div class="dashboard-unsettled-config" id="dashboard-unsettled-config"></div>
@@ -297,7 +296,7 @@
                 <table class="data-table data-table-full">
                   <thead>
                     <tr>
-                      <th data-i18n="detail.matchId">Match ID</th>
+                      <th data-i18n="detail.rank">Rank</th>
                       <th data-i18n="detail.map">Map</th>
                       <th data-i18n="detail.mode">Mode</th>
                       <th data-i18n="matches.playedAt">Played At</th>

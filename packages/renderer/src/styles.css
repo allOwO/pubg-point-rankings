@@ -1532,6 +1532,22 @@ body {
   margin-bottom: var(--space-4);
 }
 
+.dashboard-unsettled-header-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.dashboard-unsettled-header-inline h3 {
+  margin: 0;
+}
+
+.dashboard-unsettled-summary-inline {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
 .dashboard-readonly-field {
   display: flex;
   flex-direction: column;
@@ -1681,23 +1697,11 @@ body {
 /* ================================
    Dashboard Responsive
    ================================ */
-@media (min-width: 1180px) {
-  .dashboard-layout {
-    grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
-    align-items: start;
-  }
 
-  .dashboard-unsettled-card {
-    position: sticky;
-    top: var(--space-4);
-  }
-}
+/* Dashboard now uses a vertical stack layout by default (single column).
+   The unsettled summary card sits above the latest matches card. */
 
 @media (max-width: 1024px) {
-  .dashboard-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .dashboard-stat-value {
     font-size: var(--text-base);
   }
@@ -1709,6 +1713,10 @@ body {
 }
 
 @media (max-width: 860px) {
+  .dashboard-match-header {
+    flex-direction: column;
+  }
+
   .dashboard-match-stats {
     flex-wrap: wrap;
     gap: var(--space-2);
@@ -2826,7 +2834,36 @@ body {
 
 .point-delta.zero,
 .point-battle-chip.zero .point-delta {
-  color: var(--color-text-muted);
+  color: #94a3b8;
+}
+
+/* Match list rank and delta */
+.match-rank-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.match-rank {
+  font-weight: 600;
+}
+
+.match-delta {
+  font-weight: 500;
+  font-size: 0.875em;
+}
+
+.match-delta.positive {
+  color: #22c55e;
+}
+
+.match-delta.negative {
+  color: #ef4444;
+}
+
+.match-delta.zero {
+  color: #94a3b8;
 }
 
 .point-note-textarea {
