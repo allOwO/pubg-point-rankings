@@ -1621,6 +1621,26 @@ body {
   min-width: 0;
 }
 
+.dashboard-match-battle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.dashboard-match-battle-label {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dashboard-match-battle .point-battle-row {
+  min-width: 0;
+}
+
 .dashboard-match-map {
   font-weight: var(--font-semibold);
   color: var(--color-text-primary);
@@ -1704,6 +1724,14 @@ body {
 @media (max-width: 1024px) {
   .dashboard-stat-value {
     font-size: var(--text-base);
+  }
+
+  .dashboard-match-header {
+    flex-direction: column;
+  }
+
+  .dashboard-match-battle {
+    width: 100%;
   }
 
   .dashboard-squad-row {
