@@ -8,7 +8,7 @@ import {
   type TranslationKey,
 } from './i18n';
 import { formatActivitySentenceParts } from './match-log-activity';
-import { getMatchListBattleDelta, getMatchListPlacement } from './matches-list';
+import { getMatchListBattleDelta, getMatchListPlacement, getNonZeroMatchBattleDeltas } from './matches-list';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -169,6 +169,8 @@ interface DashboardRecentMatchPlayerRow {
   assists: number;
   revives: number;
   isSelf: boolean;
+  points: number;
+  isPointsEnabled: boolean;
 }
 
 interface DashboardRecentMatchRow {
@@ -179,6 +181,11 @@ interface DashboardRecentMatchRow {
   status: Match['status'];
   selfPlayer: DashboardRecentMatchPlayerRow;
   squad: DashboardRecentMatchPlayerRow[];
+  battleDeltas: Array<{
+    matchPlayerId: number;
+    displayName: string;
+    delta: number;
+  }>;
 }
 
 interface LanguageOption {
@@ -585,6 +592,8 @@ function buildDashboardRecentMatchRow(detail: MatchWithPlayers): DashboardRecent
     assists: player.assists,
     revives: player.revives,
     isSelf: player.isSelf,
+    points: player.points,
+    isPointsEnabled: player.isPointsEnabledSnapshot,
   });
 
   const squadPlayers = detail.players
@@ -595,6 +604,12 @@ function buildDashboardRecentMatchRow(detail: MatchWithPlayers): DashboardRecent
     });
 
   const squad = squadPlayers.map(toRow);
+  const battleDeltas = getNonZeroMatchBattleDeltas(squad.map((player) => ({
+    matchPlayerId: player.matchPlayerId,
+    displayName: player.displayName,
+    isPointsEnabled: player.isPointsEnabled,
+    points: player.points,
+  })));
 
   return {
     matchId: detail.match.matchId,
@@ -604,6 +619,7 @@ function buildDashboardRecentMatchRow(detail: MatchWithPlayers): DashboardRecent
     status: detail.match.status,
     selfPlayer: toRow(selfPlayer),
     squad,
+    battleDeltas,
   };
 }
 
@@ -1562,6 +1578,17 @@ function renderDashboardRecentMatches() {
     const isExpanded = state.expandedDashboardMatchId === match.matchId;
     const self = match.selfPlayer;
     const toggleLabel = isExpanded ? t('dashboard.collapseSquad') : t('dashboard.expandSquad');
+    const battleChips = match.battleDeltas.length > 0
+      ? match.battleDeltas.map((delta) => {
+          const deltaClass = delta.delta > 0 ? 'positive' : 'negative';
+          return `
+            <div class="point-battle-chip ${deltaClass}">
+              <span class="point-battle-name">${escapeHtml(delta.displayName)}</span>
+              <span class="point-delta ${deltaClass}">${escapeHtml(formatSignedInteger(delta.delta))}</span>
+            </div>
+          `;
+        }).join('')
+      : `<span class="text-muted">${escapeHtml(t('dashboard.noBattleData'))}</span>`;
 
     return `
       <div class="dashboard-match-row ${isExpanded ? 'expanded' : ''}" data-match-id="${match.matchId}" data-dashboard-match="true">
@@ -1577,6 +1604,10 @@ function renderDashboardRecentMatches() {
             <span class="dashboard-match-mode">${escapeHtml(match.gameMode)}</span>
             <span class="dashboard-match-date">${formatDateTime(match.playedAt)}</span>
             <span class="status-badge status-${match.status}">${translateMatchStatus(match.status)}</span>
+          </div>
+          <div class="dashboard-match-battle">
+            <div class="dashboard-match-battle-label">${escapeHtml(t('dashboard.pointBattle'))}</div>
+            <div class="point-battle-row">${battleChips}</div>
           </div>
           <div class="dashboard-match-stats">
             <span class="badge badge-info">${escapeHtml(t('dashboard.selfStats'))}</span>
@@ -1600,7 +1631,7 @@ function renderDashboardRecentMatches() {
         </button>
         ${isExpanded ? `
           <div class="dashboard-squad-rows">
-            ${match.squad.map(player => `
+            ${match.squad.map((player) => `
               <div class="dashboard-squad-row ${player.isSelf ? 'self' : ''}">
                 <span class="squad-player-name">${escapeHtml(player.displayName)}${player.isSelf ? `<span class="points-self-tag">${escapeHtml(t('common.you'))}</span>` : ''}</span>
                 <span class="squad-player-stat">${player.kills} ${t('detail.kills')}</span>
