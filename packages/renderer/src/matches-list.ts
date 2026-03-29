@@ -85,6 +85,10 @@ export function getMatchBattleDeltas(players: MatchBattleDeltaCandidate[]): Matc
   });
 }
 
+export function getNonZeroMatchBattleDeltas(players: MatchBattleDeltaCandidate[]): MatchBattleDeltaResult[] {
+  return getMatchBattleDeltas(players).filter((player) => player.delta !== 0);
+}
+
 /**
  * Calculate the battle delta for the current player in a match.
  * Uses battle-delta semantics:
