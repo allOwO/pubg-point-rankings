@@ -157,6 +157,10 @@ node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 - Recent match sync uses bounded concurrent remote fetching; preserve concurrency limits and sequential DB persistence.
 - Match log UI now belongs to the **matches page only**.
 - Points page should remain focused on settlement, history, and unsettled-summary behavior only.
+- Dashboard sync is now a compact action beside the global ready status, not a full dashboard card.
+- Dashboard now shows a read-only unsettled summary plus the current player's latest 10 matches; it no longer owns system-status, quick-actions, friends-summary, or polling sections.
+- Dashboard latest-match rows are self-first summaries (kills, damage, assists, revives) with expandable squad rows; keep that lightweight view separate from full match-detail rendering.
+- Polling settings now live under the settings page; do not move the polling form back into the dashboard.
 
 ## Practical notes for agents
 - Read adjacent code before editing pattern-heavy files.

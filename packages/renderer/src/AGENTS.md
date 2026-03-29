@@ -27,6 +27,10 @@ src/
 - DOM ids/classes are part of the app contract; `app.ts` relies on them heavily.
 - Keep forms modal-driven; add new actions by following existing modal/reset/open flow.
 - Accessibility lint matters here: explicit button types, titled SVGs.
+- Dashboard is now content-first: compact sync button in the sidebar header, then read-only unsettled summary + latest-10 self-match summaries.
+- Dashboard latest-match UI uses `dashboard-unsettled-*`, `dashboard-recent-*`, and `data-dashboard-match-toggle` contracts; keep `index.html`, `app.ts`, and `styles.css` aligned when editing it.
+- Polling settings belong to the Settings view and are loaded from `loadSettings()`; do not reintroduce dashboard-owned polling form logic.
+- The dashboard latest-match list is derived from the current player's row plus compact squad expansion, not the old generic recent-matches table.
 
 ## ANTI-PATTERNS
 - Do not import main-process modules here.
@@ -39,3 +43,4 @@ src/
 - `app.ts` is the largest hotspot in the repo; prefer extracting helpers before adding more branching.
 - `index.html` and `styles.css` are linted for accessibility/markup correctness, not just visual output.
 - When adding a new backend command, update `tauri-api.ts` first: add DTO interface, hydrate function, and API method.
+- Dashboard summary rendering is split across focused helpers in `app.ts`; keep the read-only unsettled summary path separate from the interactive points-page unsettled summary.
