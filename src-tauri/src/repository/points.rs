@@ -497,12 +497,11 @@ impl<'a> PointRecordsRepository<'a> {
                 };
 
                 let key = format!(
-                    "{}::{}::{}",
+                    "{}::{}",
                     player
-                        .teammate_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "null".to_string()),
-                    player.pubg_player_name,
+                        .pubg_account_id
+                        .clone()
+                        .unwrap_or_else(|| player.pubg_player_name.clone()),
                     if player.is_self { 1 } else { 0 },
                 );
 
@@ -513,6 +512,14 @@ impl<'a> PointRecordsRepository<'a> {
                     is_self: player.is_self,
                     total_delta: 0,
                 });
+
+                if entry.teammate_id.is_none() {
+                    entry.teammate_id = player.teammate_id;
+                }
+
+                if entry.fallback_display_nickname.is_none() {
+                    entry.fallback_display_nickname = player.display_nickname_snapshot.clone();
+                }
 
                 entry.total_delta += delta.delta;
             }
@@ -1622,5 +1629,96 @@ mod tests {
         );
         assert_eq!(unsettled_summary.players[0].total_delta, 0);
         assert_eq!(unsettled_summary.players[1].total_delta, 0);
+    }
+
+    #[test]
+    fn unsettled_summary_merges_same_player_even_if_teammate_id_changed() {
+        let connection = setup_connection();
+        let account_id = active_account_id(&connection);
+        let (rule_id, rule_name) = active_rule(&connection, account_id);
+
+        insert_teammate(&connection, account_id, 401, "Bravo", false, 0);
+        insert_teammate(&connection, account_id, 402, "Bravo", false, 0);
+
+        insert_match_with_players(
+            &connection,
+            account_id,
+            rule_id,
+            &rule_name,
+            "duplicate-summary-1",
+            "2026-01-07T00:00:00Z",
+            None,
+            &[
+                PlayerSeed {
+                    teammate_id: None,
+                    pubg_player_name: "SelfPlayer",
+                    team_id: Some(1),
+                    damage: 100.0,
+                    kills: 1,
+                    revives: 0,
+                    is_self: true,
+                    is_points_enabled_snapshot: true,
+                    points: 110,
+                },
+                PlayerSeed {
+                    teammate_id: Some(401),
+                    pubg_player_name: "Bravo",
+                    team_id: Some(1),
+                    damage: 50.0,
+                    kills: 1,
+                    revives: 0,
+                    is_self: false,
+                    is_points_enabled_snapshot: false,
+                    points: 0,
+                },
+            ],
+        );
+
+        insert_match_with_players(
+            &connection,
+            account_id,
+            rule_id,
+            &rule_name,
+            "duplicate-summary-2",
+            "2026-01-08T00:00:00Z",
+            None,
+            &[
+                PlayerSeed {
+                    teammate_id: None,
+                    pubg_player_name: "SelfPlayer",
+                    team_id: Some(1),
+                    damage: 120.0,
+                    kills: 1,
+                    revives: 0,
+                    is_self: true,
+                    is_points_enabled_snapshot: true,
+                    points: 130,
+                },
+                PlayerSeed {
+                    teammate_id: Some(402),
+                    pubg_player_name: "Bravo",
+                    team_id: Some(1),
+                    damage: 20.0,
+                    kills: 0,
+                    revives: 0,
+                    is_self: false,
+                    is_points_enabled_snapshot: false,
+                    points: 0,
+                },
+            ],
+        );
+
+        let unsettled_summary = PointRecordsRepository::new(&connection, account_id)
+            .get_unsettled_summary()
+            .expect("load unsettled summary");
+
+        let bravo_entries = unsettled_summary
+            .players
+            .iter()
+            .filter(|player| player.pubg_player_name == "Bravo")
+            .collect::<Vec<_>>();
+
+        assert_eq!(bravo_entries.len(), 1);
+        assert_eq!(bravo_entries[0].total_delta, 0);
     }
 }
