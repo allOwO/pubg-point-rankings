@@ -443,6 +443,7 @@ interface RecalculateUnsettledPointsResultDto {
 interface NotificationPageStatusDto {
   envStatus: NotificationEnvStatus;
   isEnabled: boolean;
+  canInstallRuntime: boolean;
   runtimeVersion: string;
   installDir: string | null;
   webUiUrl: string | null;
@@ -655,6 +656,7 @@ function hydrateNotificationPageStatus(dto: NotificationPageStatusDto): Notifica
   return {
     envStatus: dto.envStatus,
     isEnabled: dto.isEnabled,
+    canInstallRuntime: dto.canInstallRuntime,
     runtimeVersion: dto.runtimeVersion,
     installDir: dto.installDir,
     webUiUrl: dto.webUiUrl,
@@ -792,6 +794,7 @@ export function getAPI(): AppAPIClient {
       getStatus: async () => hydrateNotificationPageStatus(await invokeOptional<NotificationPageStatusDto>('notifications_get_status', undefined, {
         envStatus: 'missing_runtime',
         isEnabled: false,
+        canInstallRuntime: false,
         runtimeVersion: '',
         installDir: null,
         webUiUrl: null,

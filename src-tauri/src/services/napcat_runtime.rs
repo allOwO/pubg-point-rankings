@@ -30,6 +30,7 @@ const NOTIFICATION_ONEBOT_TOKEN_KEY: &str = "notification_onebot_token";
 pub struct NotificationPageStatusDto {
     pub env_status: String,
     pub is_enabled: bool,
+    pub can_install_runtime: bool,
     pub runtime_version: String,
     pub install_dir: Option<String>,
     pub web_ui_url: Option<String>,
@@ -73,6 +74,43 @@ pub fn install_dir() -> PathBuf {
         .join("pubg-point-rankings")
         .join("napcat")
         .join(NAPCAT_VERSION)
+}
+
+#[derive(Debug, Clone)]
+pub struct ExternalNapCatEnvironment {
+    pub runtime_dir: PathBuf,
+    pub webui_info: NapCatWebUiInfo,
+}
+
+pub fn resolve_runtime_dir(configured_install_dir: &str) -> PathBuf {
+    if configured_install_dir.trim().is_empty() {
+        install_dir()
+    } else {
+        PathBuf::from(configured_install_dir.trim())
+    }
+}
+
+pub fn probe_external_environment(
+    configured_install_dir: &str,
+) -> Result<Option<ExternalNapCatEnvironment>, AppError> {
+    let configured_dir = configured_install_dir.trim();
+    if configured_dir.is_empty() {
+        return Ok(None);
+    }
+
+    let runtime_dir = PathBuf::from(configured_dir);
+    if !runtime_dir.exists() {
+        return Ok(None);
+    }
+
+    let Some(webui_info) = discover_webui_url(&runtime_dir)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(ExternalNapCatEnvironment {
+        runtime_dir,
+        webui_info,
+    }))
 }
 
 pub fn download_zip(destination: &Path) -> Result<(), AppError> {
@@ -322,17 +360,28 @@ pub fn get_notification_status(
     let configured_install_dir = settings.get_string(NOTIFICATION_RUNTIME_INSTALL_DIR_KEY, "")?;
     let runtime_version = settings.get_string(NOTIFICATION_RUNTIME_VERSION_KEY, NAPCAT_VERSION)?;
 
-    let runtime_dir = if configured_install_dir.trim().is_empty() {
-        install_dir()
-    } else {
-        PathBuf::from(configured_install_dir.trim())
-    };
+    let windows_managed = is_supported_windows_x64();
+    let (is_supported_os, runtime_installed, runtime_dir, webui_info) = if windows_managed {
+        let runtime_dir = resolve_runtime_dir(&configured_install_dir);
+        let runtime_installed = runtime_dir.exists();
+        let webui_info = if runtime_installed {
+            discover_webui_url(&runtime_dir)?
+        } else {
+            None
+        };
 
-    let runtime_installed = runtime_dir.exists();
-    let webui_info = if runtime_installed {
-        discover_webui_url(&runtime_dir)?
+        (true, runtime_installed, Some(runtime_dir), webui_info)
     } else {
-        None
+        let external_env = probe_external_environment(&configured_install_dir)?;
+        match external_env {
+            Some(environment) => (
+                true,
+                true,
+                Some(environment.runtime_dir),
+                Some(environment.webui_info),
+            ),
+            None => (false, false, None, None),
+        }
     };
 
     let one_bot_url = webui_info
@@ -363,7 +412,7 @@ pub fn get_notification_status(
 
     let runtime_running = pid_running || onebot_reachable;
     let env_state = NapCatRuntimeState {
-        is_supported_os: is_supported_windows_x64(),
+        is_supported_os,
         runtime_installed,
         runtime_running,
         is_logged_in: qq_number.is_some(),
@@ -373,8 +422,15 @@ pub fn get_notification_status(
     Ok(NotificationPageStatusDto {
         env_status: evaluate_env_status(&env_state).to_string(),
         is_enabled,
+        can_install_runtime: windows_managed,
         runtime_version,
-        install_dir: runtime_installed.then_some(runtime_dir.to_string_lossy().to_string()),
+        install_dir: runtime_installed
+            .then(|| {
+                runtime_dir
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().to_string())
+            })
+            .flatten(),
         web_ui_url: webui_info.as_ref().map(|info| info.web_ui_url.clone()),
         one_bot_url,
         qq_number,
@@ -422,11 +478,7 @@ pub fn start_runtime_and_get_status(
     let account = AccountsRepository::new(connection).require_active()?;
     let settings = SettingsRepository::new(connection);
     let install_dir_value = settings.get_string(NOTIFICATION_RUNTIME_INSTALL_DIR_KEY, "")?;
-    let target_dir = if install_dir_value.trim().is_empty() {
-        install_dir()
-    } else {
-        PathBuf::from(install_dir_value)
-    };
+    let target_dir = resolve_runtime_dir(&install_dir_value);
 
     if !target_dir.exists() {
         return Err(AppError::Message(
@@ -463,12 +515,7 @@ pub fn restart_runtime_and_get_status(
 pub fn open_webui_info(connection: &Connection) -> Result<NapCatWebUiInfoDto, AppError> {
     let settings = SettingsRepository::new(connection);
     let configured_install_dir = settings.get_string(NOTIFICATION_RUNTIME_INSTALL_DIR_KEY, "")?;
-
-    let runtime_dir = if configured_install_dir.trim().is_empty() {
-        install_dir()
-    } else {
-        PathBuf::from(configured_install_dir.trim())
-    };
+    let runtime_dir = resolve_runtime_dir(&configured_install_dir);
 
     let webui_info = discover_webui_url(&runtime_dir)?
         .ok_or_else(|| AppError::Message("webui config not found".to_string()))?;
@@ -570,7 +617,30 @@ impl<'a> AccountSettingExt for SettingsRepository<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{coerce_loopback_host, evaluate_env_status, NapCatRuntimeState};
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use super::{
+        coerce_loopback_host, evaluate_env_status, probe_external_environment, resolve_runtime_dir,
+        NapCatRuntimeState,
+    };
+
+    fn make_temp_dir(prefix: &str) -> PathBuf {
+        let unique = format!(
+            "{}_{}",
+            prefix,
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time should be after unix epoch")
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).expect("failed to create temp dir");
+        path
+    }
 
     #[test]
     fn reports_missing_runtime_before_login_and_group_checks() {
@@ -595,5 +665,48 @@ mod tests {
             coerce_loopback_host(Some("localhost".to_string())),
             "localhost"
         );
+    }
+
+    #[test]
+    fn resolves_runtime_dir_from_trimmed_configured_path() {
+        let resolved = resolve_runtime_dir("   /tmp/napcat-runtime   ");
+        assert_eq!(resolved, PathBuf::from("/tmp/napcat-runtime"));
+    }
+
+    #[test]
+    fn probe_external_environment_returns_none_without_webui_config() {
+        let temp_dir = make_temp_dir("napcat-probe-no-webui");
+        let result = probe_external_environment(temp_dir.to_string_lossy().as_ref())
+            .expect("probe should not fail");
+
+        assert!(result.is_none());
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn probe_external_environment_detects_existing_webui_config() {
+        let temp_dir = make_temp_dir("napcat-probe-with-webui");
+        let webui_path = temp_dir.join("webui.json");
+        fs::write(
+            &webui_path,
+            r#"{"host":"127.0.0.1","port":6099,"onebotPort":3001,"token":"abc"}"#,
+        )
+        .expect("failed to write test webui.json");
+
+        let result = probe_external_environment(temp_dir.to_string_lossy().as_ref())
+            .expect("probe should not fail");
+
+        assert!(result.is_some());
+        let info = result.expect("expected detected environment");
+        assert_eq!(info.runtime_dir, temp_dir);
+        assert_eq!(
+            info.webui_info.web_ui_url,
+            "http://127.0.0.1:6099/?token=abc"
+        );
+        assert_eq!(
+            info.webui_info.one_bot_url,
+            Some("http://127.0.0.1:3001".to_string())
+        );
+        let _ = fs::remove_dir_all(info.runtime_dir);
     }
 }

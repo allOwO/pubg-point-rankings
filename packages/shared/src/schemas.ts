@@ -270,6 +270,7 @@ export const AppStatusSchema = z.object({
 export const NotificationPageStatusSchema = z.object({
   envStatus: NotificationEnvStatusSchema,
   isEnabled: z.boolean(),
+  canInstallRuntime: z.boolean(),
   runtimeVersion: z.string(),
   installDir: z.string().nullable(),
   webUiUrl: z.string().nullable(),

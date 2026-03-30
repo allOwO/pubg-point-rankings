@@ -256,6 +256,7 @@ export type FailedNotificationSendStatus = 'sending' | 'sent' | 'failed';
 export interface NotificationPageStatus {
   envStatus: NotificationEnvStatus;
   isEnabled: boolean;
+  canInstallRuntime: boolean;
   runtimeVersion: string;
   installDir: string | null;
   webUiUrl: string | null;
