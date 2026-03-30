@@ -150,6 +150,84 @@ impl<'a> PointMatchMetaRepository<'a> {
         })
     }
 
+    pub fn settle_single_match(&self, match_id: &str) -> Result<(), AppError> {
+        self.ensure_match_exists(match_id)?;
+
+        let already_settled: i64 = self.connection.query_row(
+            "SELECT COUNT(*)
+             FROM point_match_meta
+             WHERE account_id = ?1
+               AND match_id = ?2
+               AND settled_at IS NOT NULL",
+            params![self.account_id, match_id],
+            |row| row.get(0),
+        )?;
+        if already_settled > 0 {
+            return Ok(());
+        }
+
+        let has_points: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM point_records WHERE account_id = ?1 AND match_id = ?2",
+            params![self.account_id, match_id],
+            |row| row.get(0),
+        )?;
+        if has_points == 0 {
+            return Ok(());
+        }
+
+        let rule_snapshot = self.connection.query_row(
+            "SELECT rule_id, rule_name_snapshot
+             FROM point_records
+             WHERE account_id = ?1 AND match_id = ?2
+             ORDER BY id ASC
+             LIMIT 1",
+            params![self.account_id, match_id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        );
+
+        let (rule_id_snapshot, rule_name_snapshot) = match rule_snapshot {
+            Ok((rule_id, rule_name)) => (Some(rule_id), Some(rule_name)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => (None, None),
+            Err(error) => return Err(error.into()),
+        };
+
+        let tx = self.connection.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO point_settlement_batches
+             (account_id, start_match_id, end_match_id, rule_id_snapshot, rule_name_snapshot, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, CURRENT_TIMESTAMP)",
+            params![
+                self.account_id,
+                match_id,
+                match_id,
+                rule_id_snapshot,
+                rule_name_snapshot,
+            ],
+        )?;
+        let settlement_batch_id = tx.last_insert_rowid();
+
+        tx.execute(
+            "INSERT INTO point_match_meta
+             (account_id, match_id, note, settled_at, settlement_batch_id, created_at, updated_at)
+             VALUES (?1, ?2, NULL, CURRENT_TIMESTAMP, ?3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT(account_id, match_id) DO UPDATE SET
+               settled_at = CASE
+                 WHEN point_match_meta.settled_at IS NULL THEN excluded.settled_at
+                 ELSE point_match_meta.settled_at
+               END,
+               settlement_batch_id = CASE
+                 WHEN point_match_meta.settled_at IS NULL THEN excluded.settlement_batch_id
+                 ELSE point_match_meta.settlement_batch_id
+               END,
+               updated_at = CURRENT_TIMESTAMP",
+            params![self.account_id, match_id, settlement_batch_id],
+        )?;
+
+        tx.commit()?;
+
+        Ok(())
+    }
+
     fn ensure_match_exists(&self, match_id: &str) -> Result<(), AppError> {
         let exists: i64 = self.connection.query_row(
             "SELECT COUNT(*) FROM matches WHERE account_id = ?1 AND match_id = ?2",
@@ -409,5 +487,52 @@ mod tests {
             second_batch_start_end,
             ("match-3".to_string(), "match-3".to_string())
         );
+    }
+
+    #[test]
+    fn settle_single_match_sets_only_target_match() {
+        let connection = setup_connection();
+        let account_id = active_account_id(&connection);
+        let (rule_id, rule_name) = active_rule_snapshot(&connection, account_id);
+
+        insert_match_with_point(
+            &connection,
+            account_id,
+            rule_id,
+            &rule_name,
+            "match-single-1",
+            "2026-01-01T00:00:00Z",
+        );
+        insert_match_with_point(
+            &connection,
+            account_id,
+            rule_id,
+            &rule_name,
+            "match-single-2",
+            "2026-01-02T00:00:00Z",
+        );
+
+        let repository = PointMatchMetaRepository::new(&connection, account_id);
+        repository
+            .settle_single_match("match-single-2")
+            .expect("settle exact match-single-2");
+
+        let match_1_settled_at: Option<String> = connection
+            .query_row(
+                "SELECT settled_at FROM point_match_meta WHERE account_id = ?1 AND match_id = 'match-single-1'",
+                [account_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+        let match_2_settled_at: Option<String> = connection
+            .query_row(
+                "SELECT settled_at FROM point_match_meta WHERE account_id = ?1 AND match_id = 'match-single-2'",
+                [account_id],
+                |row| row.get(0),
+            )
+            .expect("match-single-2 settled_at");
+
+        assert!(match_1_settled_at.is_none());
+        assert!(match_2_settled_at.is_some());
     }
 }

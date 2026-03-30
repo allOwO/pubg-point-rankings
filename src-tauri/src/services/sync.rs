@@ -26,6 +26,7 @@ use crate::{
         settings::SettingsRepository,
         teammates::{TeammateDto, TeammatesRepository},
     },
+    services::notifications,
 };
 
 const REMOTE_FETCH_CONCURRENCY: usize = 4;
@@ -642,6 +643,7 @@ fn persist_match_bundle(
     tx_matches.update_status(&bundle.match_id, "ready")?;
     tx_settings.set_account(active_account.id, "last_sync_at", &chrono_like_iso_utc())?;
     tx.commit()?;
+    notifications::enqueue_match_notification(connection, &bundle.match_id)?;
 
     let final_match =
         MatchesRepository::new(connection, active_account.id).get_by_id(&bundle.match_id)?;

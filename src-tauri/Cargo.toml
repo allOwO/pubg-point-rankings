@@ -22,3 +22,4 @@ thiserror = "2"
 ureq = { version = "2", features = ["json"] }
 urlencoding = "2"
 chrono = { version = "0.4", default-features = true }
+zip = { version = "2", default-features = false, features = ["deflate"] }

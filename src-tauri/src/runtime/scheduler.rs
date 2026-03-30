@@ -61,6 +61,12 @@ pub fn start_background_scheduler_with_sync(
             }
         }
 
+        if let Some(db_state) = &db {
+            if let Ok(connection) = db_state.lock() {
+                let _ = crate::services::notifications::process_due_notifications(&connection);
+            }
+        }
+
         thread::sleep(sleep_for);
     });
 }
