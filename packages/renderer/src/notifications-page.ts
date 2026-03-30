@@ -204,7 +204,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     const isUnsupported = this.status?.envStatus === 'unsupported_os';
     const isMissing = this.status?.envStatus === 'missing_runtime';
     const canStart = this.status?.envStatus === 'runtime_not_running';
-    const canInstall = isMissing && !isUnsupported;
+    const canInstall = isMissing && !!this.status?.canInstallRuntime;
     const isRunning = this.status?.envStatus === 'not_logged_in' ||
                       this.status?.envStatus === 'missing_group_id' ||
                       this.status?.envStatus === 'ready';
