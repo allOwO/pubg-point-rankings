@@ -9,6 +9,7 @@ import {
 } from './i18n';
 import { formatActivitySentenceParts } from './match-log-activity';
 import { getMatchListBattleDelta, getMatchListPlacement, getNonZeroMatchBattleDeltas } from './matches-list';
+import { createNotificationsPageController, type NotificationsPageController } from './notifications-page';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -402,6 +403,35 @@ async function loadSettings() {
   }
 }
 
+async function loadNotifications() {
+  try {
+    const api = getAPI();
+
+    // Create or reuse the notifications controller
+    if (!state.notificationsController) {
+      state.notificationsController = createNotificationsPageController({
+        getStatus: () => api.notifications.getStatus(),
+        getFailedTasks: () => api.notifications.getFailedTasks(),
+        sendSelected: (taskIds: number[]) => api.notifications.sendSelected(taskIds),
+        deleteFailedTask: (taskId: number) => api.notifications.deleteFailedTask(taskId),
+        installRuntime: () => api.notifications.installRuntime(),
+        startRuntime: () => api.notifications.startRuntime(),
+        stopRuntime: () => api.notifications.stopRuntime(),
+        restartRuntime: () => api.notifications.restartRuntime(),
+        sendTest: () => api.notifications.sendTest(),
+        saveGroupId: (groupId: string) => api.notifications.saveGroupId(groupId),
+        translate: (key: string) => t(key as TranslationKey),
+      });
+    }
+
+    await state.notificationsController.load();
+    applyStaticTranslations();
+  } catch (error) {
+    console.error('Failed to load notifications:', error);
+    showToast(t('toast.notificationsLoadFailed'), 'error');
+  }
+}
+
 async function handleLanguageSubmit(e: Event) {
   e.preventDefault();
 
@@ -561,6 +591,7 @@ export class AppState {
   locale: Locale = DEFAULT_LOCALE;
   hasConfiguredApiKey = false;
   isLoading = false;
+  notificationsController: NotificationsPageController | null = null;
 }
 
 export const state = new AppState();
@@ -1329,7 +1360,10 @@ export function navigateTo(viewId: string) {
      case 'settings':
        loadSettings();
        break;
-   }
+     case 'notifications':
+       loadNotifications();
+       break;
+    }
 }
 
 // Data loading functions

@@ -3115,3 +3115,176 @@ body {
     align-items: flex-start;
   }
 }
+
+/* ================================
+   Notifications View
+   ================================ */
+
+.notification-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 112px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.notification-status-pill.success {
+  color: var(--color-success);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.notification-status-pill.warning {
+  color: var(--color-warning);
+  background: rgba(234, 179, 8, 0.12);
+  border-color: rgba(234, 179, 8, 0.28);
+}
+
+.notification-status-pill.info {
+  color: var(--color-info);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.notification-status-pill.error {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.notification-status-details,
+.notification-runtime-controls,
+.notification-runtime-actions,
+.notification-config-form,
+.notification-template-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.notification-runtime-actions,
+.notification-failed-toolbar,
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.notification-webui-container,
+.notification-webui-placeholder,
+.notification-config-placeholder,
+.notification-failed-empty,
+.template-line-placeholder {
+  border: 1px dashed var(--color-border-hover);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.02);
+  padding: var(--space-4);
+}
+
+.notification-webui-frame {
+  width: 100%;
+  min-height: 480px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+
+.notification-failed-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+}
+
+.notification-failed-table-wrapper {
+  overflow-x: auto;
+}
+
+.notification-failed-table .checkbox-cell {
+  width: 52px;
+  text-align: center;
+}
+
+.notification-failed-table .battle-summary-cell,
+.notification-failed-table .error-cell {
+  max-width: 280px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notification-failed-table tr.sending {
+  opacity: 0.72;
+}
+
+.notification-send-state {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  border: 1px solid transparent;
+}
+
+.notification-send-state.sending {
+  color: var(--color-info);
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.notification-send-state.sent {
+  color: var(--color-success);
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.notification-send-state.failed {
+  color: var(--color-error);
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.delete-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.delete-confirm-text {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.notification-template-editor p,
+.notification-webui-placeholder p,
+.notification-config-placeholder p,
+.notification-failed-empty p {
+  color: var(--color-text-secondary);
+}
+
+@media (max-width: 768px) {
+  .notification-webui-frame {
+    min-height: 360px;
+  }
+
+  .notification-failed-toolbar,
+  .notification-runtime-actions,
+  .form-actions {
+    flex-direction: column;
+  }
+}

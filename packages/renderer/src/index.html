@@ -124,13 +124,21 @@
              </svg>
               <span data-i18n="nav.points">Point History</span>
            </a>
-           <a href="#settings" class="nav-item" data-view="settings">
+           <a href="#notifications" class="nav-item" data-view="notifications">
              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-               <title>Settings navigation</title>
-               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-               <circle cx="12" cy="12" r="3"/>
+               <title>Notifications navigation</title>
+               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+               <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
              </svg>
-              <span data-i18n="nav.settings">Settings</span>
+             <span data-i18n="nav.notifications">Notifications</span>
+           </a>
+           <a href="#settings" class="nav-item" data-view="settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <title>Settings navigation</title>
+                <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+               <span data-i18n="nav.settings">Settings</span>
            </a>
          </nav>
 
@@ -359,6 +367,22 @@
               </div>
             </div>
           </section>
+
+         <!-- Notifications View -->
+         <section id="view-notifications" class="view">
+           <header class="view-header">
+             <h1 data-i18n="notifications.title">Message Notifications</h1>
+             <p class="view-subtitle" data-i18n="notifications.subtitle">Manage NapCat runtime, QQ login, group delivery, and failed sends.</p>
+           </header>
+           <div class="view-content">
+             <div class="card card-wide" id="notifications-status-card"></div>
+             <div class="card card-wide" id="notifications-runtime-card"></div>
+             <div class="card card-wide" id="notifications-login-card"></div>
+             <div class="card card-wide" id="notifications-config-card"></div>
+             <div class="card card-wide" id="notifications-failed-card"></div>
+             <div class="card card-wide" id="notifications-template-card"></div>
+           </div>
+         </section>
 
          <!-- Settings View -->
          <section id="view-settings" class="view">
