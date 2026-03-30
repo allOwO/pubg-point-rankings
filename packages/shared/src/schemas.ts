@@ -13,6 +13,36 @@ export const MatchStatusSchema = z.enum(['detected', 'syncing', 'ready', 'failed
 
 export const RoundingModeSchema = z.enum(['floor', 'round', 'ceil']);
 
+export const NotificationEnvStatusSchema = z.enum([
+  'unsupported_os',
+  'missing_runtime',
+  'runtime_not_running',
+  'not_logged_in',
+  'missing_group_id',
+  'ready',
+]);
+
+export const NotificationTaskStatusSchema = z.enum([
+  'pending',
+  'sending',
+  'retrying',
+  'failed_manual',
+  'sent',
+  'deleted',
+  'cancelled_settled',
+]);
+
+export const FailedNotificationSendStatusSchema = z.enum(['sending', 'sent', 'failed']);
+
+export const NotificationTemplateLineIdSchema = z.enum([
+  'header',
+  'player1',
+  'player2',
+  'player3',
+  'player4',
+  'battle',
+]);
+
 // Base schemas
 export const AppSettingSchema = z.object({
   key: z.string(),
@@ -235,6 +265,46 @@ export const AppStatusSchema = z.object({
   databasePath: z.string(),
   isDatabaseReady: z.boolean(),
   syncStatus: SyncStatusSchema,
+});
+
+export const NotificationPageStatusSchema = z.object({
+  envStatus: NotificationEnvStatusSchema,
+  isEnabled: z.boolean(),
+  runtimeVersion: z.string(),
+  installDir: z.string().nullable(),
+  webUiUrl: z.string().nullable(),
+  oneBotUrl: z.string().nullable(),
+  qqNumber: z.string().nullable(),
+  groupId: z.string(),
+  lastError: z.string().nullable(),
+});
+
+export const NotificationFailedTaskSchema = z.object({
+  id: z.number(),
+  matchId: z.string(),
+  matchTime: z.date(),
+  placement: z.number().int().nullable(),
+  battleSummary: z.string(),
+  lastError: z.string().nullable(),
+  sendStatus: FailedNotificationSendStatusSchema,
+});
+
+export const NotificationTemplateLineConfigSchema = z.object({
+  id: NotificationTemplateLineIdSchema,
+  prefix: z.string(),
+  suffix: z.string(),
+});
+
+export const NotificationTemplateConfigSchema = z.object({
+  order: z.array(NotificationTemplateLineIdSchema),
+  lines: z.object({
+    header: NotificationTemplateLineConfigSchema,
+    player1: NotificationTemplateLineConfigSchema,
+    player2: NotificationTemplateLineConfigSchema,
+    player3: NotificationTemplateLineConfigSchema,
+    player4: NotificationTemplateLineConfigSchema,
+    battle: NotificationTemplateLineConfigSchema,
+  }),
 });
 
 export const PointHistoryPlayerBreakdownSchema = z.object({

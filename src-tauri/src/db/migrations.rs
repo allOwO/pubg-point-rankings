@@ -773,49 +773,88 @@ fn migrate_v9_to_v10(connection: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+fn migrate_v10_to_v11(connection: &Connection) -> Result<(), AppError> {
+    connection.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS match_notification_tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL,
+          match_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          retry_count INTEGER NOT NULL DEFAULT 0,
+          next_retry_at DATETIME,
+          message_body TEXT NOT NULL,
+          preview_match_time TEXT NOT NULL,
+          preview_placement INTEGER,
+          preview_battle_summary TEXT NOT NULL,
+          last_error TEXT,
+          sent_at DATETIME,
+          deleted_at DATETIME,
+          created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(account_id, match_id),
+          FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_match_notification_tasks_account_status
+          ON match_notification_tasks(account_id, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_match_notification_tasks_account_next_retry
+          ON match_notification_tasks(account_id, next_retry_at);
+        "#,
+    )?;
+
+    Ok(())
+}
+
 pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
     let version = current_version(connection)?;
+    let mut effective_version = version;
 
     if version == 0 {
         connection.execute_batch(INITIAL_SCHEMA_SQL)?;
         set_version(connection, SCHEMA_VERSION)?;
-    } else {
-        if version < 2 {
-            migrate_v1_to_v2(connection)?;
-            set_version(connection, 2)?;
-        }
-        if version < 3 {
-            migrate_v2_to_v3(connection)?;
-            set_version(connection, 3)?;
-        }
-        if version < 4 {
-            migrate_v3_to_v4(connection)?;
-            set_version(connection, 4)?;
-        }
-        if version < 5 {
-            migrate_v4_to_v5(connection)?;
-            set_version(connection, 5)?;
-        }
-        if version < 6 {
-            migrate_v5_to_v6(connection)?;
-            set_version(connection, 6)?;
-        }
-        if version < 7 {
-            migrate_v6_to_v7(connection)?;
-            set_version(connection, 7)?;
-        }
-        if version < 8 {
-            migrate_v7_to_v8(connection)?;
-            set_version(connection, 8)?;
-        }
-        if version < 9 {
-            migrate_v8_to_v9(connection)?;
-            set_version(connection, 9)?;
-        }
-        if version < 10 {
-            migrate_v9_to_v10(connection)?;
-            set_version(connection, 10)?;
-        }
+        effective_version = SCHEMA_VERSION;
+    }
+
+    if effective_version < 2 {
+        migrate_v1_to_v2(connection)?;
+        set_version(connection, 2)?;
+    }
+    if effective_version < 3 {
+        migrate_v2_to_v3(connection)?;
+        set_version(connection, 3)?;
+    }
+    if effective_version < 4 {
+        migrate_v3_to_v4(connection)?;
+        set_version(connection, 4)?;
+    }
+    if effective_version < 5 {
+        migrate_v4_to_v5(connection)?;
+        set_version(connection, 5)?;
+    }
+    if effective_version < 6 {
+        migrate_v5_to_v6(connection)?;
+        set_version(connection, 6)?;
+    }
+    if effective_version < 7 {
+        migrate_v6_to_v7(connection)?;
+        set_version(connection, 7)?;
+    }
+    if effective_version < 8 {
+        migrate_v7_to_v8(connection)?;
+        set_version(connection, 8)?;
+    }
+    if effective_version < 9 {
+        migrate_v8_to_v9(connection)?;
+        set_version(connection, 9)?;
+    }
+    if effective_version < 10 {
+        migrate_v9_to_v10(connection)?;
+        set_version(connection, 10)?;
+    }
+    if effective_version < 11 {
+        migrate_v10_to_v11(connection)?;
+        set_version(connection, 11)?;
     }
 
     connection.execute_batch(DEFAULT_DATA_SQL)?;
@@ -1124,7 +1163,7 @@ mod tests {
             )
             .expect("select weapon name");
 
-        assert_eq!(schema_version, 10);
+        assert_eq!(schema_version, 11);
         assert_eq!(damage_causer_name, "Mk12");
         assert_eq!(kill_damage_causer_name, "UAZ (open top)");
         assert_eq!(weapon_name, "Mk12");
@@ -1162,6 +1201,6 @@ mod tests {
             .expect("select schema version");
 
         assert_eq!(knock_events_table_exists, 1);
-        assert_eq!(schema_version, 10);
+        assert_eq!(schema_version, 11);
     }
 }

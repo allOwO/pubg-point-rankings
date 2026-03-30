@@ -234,6 +234,58 @@ export interface AppStatus {
   syncStatus: SyncStatus;
 }
 
+export type NotificationEnvStatus =
+  | 'unsupported_os'
+  | 'missing_runtime'
+  | 'runtime_not_running'
+  | 'not_logged_in'
+  | 'missing_group_id'
+  | 'ready';
+
+export type NotificationTaskStatus =
+  | 'pending'
+  | 'sending'
+  | 'retrying'
+  | 'failed_manual'
+  | 'sent'
+  | 'deleted'
+  | 'cancelled_settled';
+
+export type FailedNotificationSendStatus = 'sending' | 'sent' | 'failed';
+
+export interface NotificationPageStatus {
+  envStatus: NotificationEnvStatus;
+  isEnabled: boolean;
+  runtimeVersion: string;
+  installDir: string | null;
+  webUiUrl: string | null;
+  oneBotUrl: string | null;
+  qqNumber: string | null;
+  groupId: string;
+  lastError: string | null;
+}
+
+export interface NotificationFailedTask {
+  id: number;
+  matchId: string;
+  matchTime: Date;
+  placement: number | null;
+  battleSummary: string;
+  lastError: string | null;
+  sendStatus: FailedNotificationSendStatus;
+}
+
+export interface NotificationTemplateLineConfig {
+  id: 'header' | 'player1' | 'player2' | 'player3' | 'player4' | 'battle';
+  prefix: string;
+  suffix: string;
+}
+
+export interface NotificationTemplateConfig {
+  order: Array<'header' | 'player1' | 'player2' | 'player3' | 'player4' | 'battle'>;
+  lines: Record<NotificationTemplateLineConfig['id'], NotificationTemplateLineConfig>;
+}
+
 export interface PointHistoryPlayerBreakdown {
   matchPlayerId: number;
   teammateId: number | null;

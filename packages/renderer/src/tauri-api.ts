@@ -27,8 +27,12 @@ import type {
   PointHistoryRuleChangeMarker,
   PointHistoryPlayerBreakdown,
   PointBattleDelta,
+  FailedNotificationSendStatus,
   RecalculateUnsettledPointsInput,
   RecalculateUnsettledPointsResult,
+  NotificationEnvStatus,
+  NotificationFailedTask,
+  NotificationPageStatus,
   UnsettledBattleSummary,
   UnsettledPlayerSummary,
 } from '@pubg-point-rankings/shared';
@@ -130,6 +134,18 @@ export interface AppAPIClient {
     recalculateUnsettled(input: RecalculateUnsettledPointsInput): Promise<RecalculateUnsettledPointsResult>;
     settleThroughMatch(input: SettlePointMatchesInput): Promise<{ settlementBatchId: number; settledMatchCount: number }>;
     updateMatchNote(input: UpdatePointMatchNoteInput): Promise<void>;
+  };
+  notifications: {
+    getStatus(): Promise<NotificationPageStatus>;
+    getFailedTasks(): Promise<NotificationFailedTask[]>;
+    sendSelected(taskIds: number[]): Promise<{ sentIds: number[]; failedIds: number[] }>;
+    deleteFailedTask(taskId: number): Promise<void>;
+    installRuntime(): Promise<NotificationPageStatus>;
+    startRuntime(): Promise<NotificationPageStatus>;
+    stopRuntime(): Promise<void>;
+    restartRuntime(): Promise<NotificationPageStatus>;
+    sendTest(): Promise<void>;
+    saveGroupId(groupId: string): Promise<NotificationPageStatus>;
   };
   sync: {
     getStatus(): Promise<SyncStatus>;
@@ -424,6 +440,28 @@ interface RecalculateUnsettledPointsResultDto {
   recalculatedMatchCount: number;
 }
 
+interface NotificationPageStatusDto {
+  envStatus: NotificationEnvStatus;
+  isEnabled: boolean;
+  runtimeVersion: string;
+  installDir: string | null;
+  webUiUrl: string | null;
+  oneBotUrl: string | null;
+  qqNumber: string | null;
+  groupId: string;
+  lastError: string | null;
+}
+
+interface NotificationFailedTaskDto {
+  id: number;
+  matchId: string;
+  matchTime: string;
+  placement: number | null;
+  battleSummary: string;
+  lastError: string | null;
+  sendStatus: FailedNotificationSendStatus;
+}
+
 function isCommandMissingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /not found|unknown command|command .* not found|desktop capability not found/i.test(message);
@@ -613,6 +651,27 @@ function hydrateRecalculateUnsettledPointsResult(
   return dto;
 }
 
+function hydrateNotificationPageStatus(dto: NotificationPageStatusDto): NotificationPageStatus {
+  return {
+    envStatus: dto.envStatus,
+    isEnabled: dto.isEnabled,
+    runtimeVersion: dto.runtimeVersion,
+    installDir: dto.installDir,
+    webUiUrl: dto.webUiUrl,
+    oneBotUrl: dto.oneBotUrl,
+    qqNumber: dto.qqNumber,
+    groupId: dto.groupId,
+    lastError: dto.lastError,
+  };
+}
+
+function hydrateNotificationFailedTask(dto: NotificationFailedTaskDto): NotificationFailedTask {
+  return {
+    ...dto,
+    matchTime: new Date(dto.matchTime),
+  };
+}
+
 async function invokeOptional<T>(command: string, args: Record<string, unknown> | undefined, fallback: T): Promise<T> {
   try {
     return await invoke<T>(command, args);
@@ -728,6 +787,53 @@ export function getAPI(): AppAPIClient {
       ),
       settleThroughMatch: async (input) => invokeRequired<{ settlementBatchId: number; settledMatchCount: number }>('points_settle_through_match', { input }),
       updateMatchNote: async (input) => invokeRequired('points_update_match_note', { input }),
+    },
+    notifications: {
+      getStatus: async () => hydrateNotificationPageStatus(await invokeOptional<NotificationPageStatusDto>('notifications_get_status', undefined, {
+        envStatus: 'missing_runtime',
+        isEnabled: false,
+        runtimeVersion: '',
+        installDir: null,
+        webUiUrl: null,
+        oneBotUrl: null,
+        qqNumber: null,
+        groupId: '',
+        lastError: null,
+      })),
+      getFailedTasks: async () => (
+        await invokeOptional<NotificationFailedTaskDto[]>('notifications_get_failed_tasks', undefined, [])
+      ).map(hydrateNotificationFailedTask),
+      sendSelected: async (taskIds) => invokeRequired<{ sentIds: number[]; failedIds: number[] }>('notifications_send_selected', {
+        input: { taskIds },
+      }),
+      deleteFailedTask: async (taskId) => {
+        await invokeRequired('notifications_delete_failed_task', {
+          input: { taskId },
+        });
+      },
+      installRuntime: async () => {
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_install_runtime');
+        return hydrateNotificationPageStatus(dto);
+      },
+      startRuntime: async () => {
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_start_runtime');
+        return hydrateNotificationPageStatus(dto);
+      },
+      stopRuntime: async () => {
+        await invokeRequired('notifications_stop_runtime');
+      },
+      restartRuntime: async () => {
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_restart_runtime');
+        return hydrateNotificationPageStatus(dto);
+      },
+      sendTest: async () => {
+        await invokeRequired('notifications_send_test');
+      },
+      saveGroupId: async (groupId) => {
+        await invokeRequired('settings_set', { key: 'notification_group_id', value: groupId });
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_get_status');
+        return hydrateNotificationPageStatus(dto);
+      },
     },
     sync: {
       getStatus: async () => hydrateSyncStatus(await invokeOptional<SyncStatusDto>('sync_get_status', undefined, {

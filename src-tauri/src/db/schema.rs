@@ -1,4 +1,4 @@
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 pub const INITIAL_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -224,6 +224,26 @@ CREATE TABLE IF NOT EXISTS point_match_meta (
   FOREIGN KEY (settlement_batch_id) REFERENCES point_settlement_batches(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS match_notification_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL,
+  match_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  next_retry_at DATETIME,
+  message_body TEXT NOT NULL,
+  preview_match_time TEXT NOT NULL,
+  preview_placement INTEGER,
+  preview_battle_summary TEXT NOT NULL,
+  last_error TEXT,
+  sent_at DATETIME,
+  deleted_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(account_id, match_id),
+  FOREIGN KEY (account_id, match_id) REFERENCES matches(account_id, match_id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_teammates_account_name ON teammates(account_id, pubg_player_name);
 CREATE INDEX IF NOT EXISTS idx_teammates_account_account_id ON teammates(account_id, pubg_account_id);
 CREATE INDEX IF NOT EXISTS idx_teammates_account_is_friend ON teammates(account_id, is_friend);
@@ -244,17 +264,19 @@ CREATE INDEX IF NOT EXISTS idx_point_rules_account_created_at ON point_rules(acc
 CREATE INDEX IF NOT EXISTS idx_point_settlement_batches_account_created_at ON point_settlement_batches(account_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settled_at ON point_match_meta(account_id, settled_at);
 CREATE INDEX IF NOT EXISTS idx_point_match_meta_account_settlement_batch_id ON point_match_meta(account_id, settlement_batch_id);
+CREATE INDEX IF NOT EXISTS idx_match_notification_tasks_account_status ON match_notification_tasks(account_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_match_notification_tasks_account_next_retry ON match_notification_tasks(account_id, next_retry_at);
 
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER PRIMARY KEY,
   applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (10);
+INSERT OR IGNORE INTO schema_version (version) VALUES (11);
 "#;
 
 pub const DEFAULT_DATA_SQL: &str = r#"
-INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '10', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '11', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('auto_recent_match_enabled', '1', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_process_check_interval_seconds', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('not_running_process_check_interval_seconds', '30', CURRENT_TIMESTAMP);
