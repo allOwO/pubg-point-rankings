@@ -10,7 +10,7 @@ use crate::{
     platform::process,
     runtime::game_state::{GameProcessRuntime, GameProcessState},
     services::{
-        polling::{load_polling_config, PollingConfig},
+        polling::{load_polling_config, PollingConfig, PollingMode},
         sync::{sync_recent_match_with_retry, SyncRuntimeStatus},
     },
 };
@@ -77,6 +77,19 @@ fn tick_once(
     now: SystemTime,
     config: &PollingConfig,
 ) -> SchedulerTickResult {
+    match config.polling_mode {
+        PollingMode::Game => tick_game_mode(runtime, is_running, now, config),
+        PollingMode::Manual => tick_manual_mode(runtime, is_running, now, config),
+        PollingMode::Auto => tick_auto_mode(runtime, now, config),
+    }
+}
+
+fn tick_game_mode(
+    runtime: &mut GameProcessRuntime,
+    is_running: bool,
+    now: SystemTime,
+    config: &PollingConfig,
+) -> SchedulerTickResult {
     runtime.update_process_observation_with_cooldown(is_running, now, config.cooldown_window);
 
     let should_trigger_recent_match_check = should_check_recent_matches(runtime.state)
@@ -91,6 +104,38 @@ fn tick_once(
 
     SchedulerTickResult {
         sleep_for: process_check_interval(runtime.state, config),
+        should_trigger_recent_match_check,
+    }
+}
+
+fn tick_manual_mode(
+    runtime: &mut GameProcessRuntime,
+    is_running: bool,
+    now: SystemTime,
+    config: &PollingConfig,
+) -> SchedulerTickResult {
+    runtime.update_process_observation_with_cooldown(is_running, now, config.cooldown_window);
+
+    SchedulerTickResult {
+        sleep_for: process_check_interval(runtime.state, config),
+        should_trigger_recent_match_check: false,
+    }
+}
+
+fn tick_auto_mode(
+    runtime: &mut GameProcessRuntime,
+    now: SystemTime,
+    config: &PollingConfig,
+) -> SchedulerTickResult {
+    let should_trigger_recent_match_check =
+        runtime.should_trigger_recent_match_check(now, config.running_recent_match_interval);
+
+    if should_trigger_recent_match_check {
+        runtime.mark_recent_match_check(now);
+    }
+
+    SchedulerTickResult {
+        sleep_for: config.running_recent_match_interval,
         should_trigger_recent_match_check,
     }
 }
@@ -135,7 +180,7 @@ mod tests {
         process_check_interval, recent_match_check_cadence, should_check_recent_matches, tick_once,
     };
     use crate::runtime::game_state::{GameProcessRuntime, GameProcessState};
-    use crate::services::polling::PollingConfig;
+    use crate::services::polling::{PollingConfig, PollingMode};
     use std::time::{Duration, SystemTime};
 
     #[test]
@@ -202,6 +247,31 @@ mod tests {
         assert_eq!(runtime.state, GameProcessState::NotRunning);
         assert!(!result.should_trigger_recent_match_check);
         assert_eq!(runtime.last_recent_match_check_at, None);
+    }
+
+    #[test]
+    fn manual_mode_never_triggers_recent_match_check() {
+        let mut config = PollingConfig::default();
+        config.polling_mode = PollingMode::Manual;
+
+        let mut runtime = GameProcessRuntime::default();
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let result = tick_once(&mut runtime, true, now, &config);
+
+        assert!(!result.should_trigger_recent_match_check);
+    }
+
+    #[test]
+    fn auto_mode_triggers_even_when_process_is_not_running() {
+        let mut config = PollingConfig::default();
+        config.polling_mode = PollingMode::Auto;
+
+        let mut runtime = GameProcessRuntime::default();
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        let result = tick_once(&mut runtime, false, now, &config);
+
+        assert!(result.should_trigger_recent_match_check);
+        assert_eq!(result.sleep_for, config.running_recent_match_interval);
     }
 
     #[test]

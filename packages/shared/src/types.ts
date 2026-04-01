@@ -11,6 +11,18 @@ export type MatchStatus = 'detected' | 'syncing' | 'ready' | 'failed';
 
 export type RoundingMode = 'floor' | 'round' | 'ceil';
 
+export type PollingMode = 'game' | 'manual' | 'auto';
+
+export type ManualSyncTaskState = 'idle' | 'syncing' | 'success' | 'failed';
+
+export interface ManualSyncTaskStatus {
+  state: ManualSyncTaskState;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  errorMessage: string | null;
+  trigger: 'manual';
+}
+
 export interface AppSetting {
   key: string;
   value: string;

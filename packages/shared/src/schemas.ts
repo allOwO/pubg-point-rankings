@@ -13,6 +13,18 @@ export const MatchStatusSchema = z.enum(['detected', 'syncing', 'ready', 'failed
 
 export const RoundingModeSchema = z.enum(['floor', 'round', 'ceil']);
 
+export const PollingModeSchema = z.enum(['game', 'manual', 'auto']);
+
+export const ManualSyncTaskStateSchema = z.enum(['idle', 'syncing', 'success', 'failed']);
+
+export const ManualSyncTaskStatusSchema = z.object({
+  state: ManualSyncTaskStateSchema,
+  startedAt: z.date().nullable(),
+  finishedAt: z.date().nullable(),
+  errorMessage: z.string().nullable(),
+  trigger: z.literal('manual'),
+});
+
 export const NotificationEnvStatusSchema = z.enum([
   'unsupported_os',
   'missing_runtime',

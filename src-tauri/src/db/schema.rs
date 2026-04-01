@@ -278,6 +278,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (11);
 pub const DEFAULT_DATA_SQL: &str = r#"
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '11', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('auto_recent_match_enabled', '1', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('polling_mode', 'game', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_process_check_interval_seconds', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('not_running_process_check_interval_seconds', '30', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_recent_match_interval_seconds', '30', CURRENT_TIMESTAMP);
