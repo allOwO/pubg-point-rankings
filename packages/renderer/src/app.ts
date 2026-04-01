@@ -10,6 +10,8 @@ import {
 import { formatActivitySentenceParts } from './match-log-activity';
 import { getMatchListBattleDelta, getMatchListPlacement, getNonZeroMatchBattleDeltas } from './matches-list';
 import { createNotificationsPageController, type NotificationsPageController } from './notifications-page';
+import type { ManualSyncTaskStatus, PollingMode } from '@pubg-point-rankings/shared';
+import { getManualSyncToastEvent, isSyncButtonLocked, shouldPollManualSyncStatus } from './sync-status-monitor';
 
 /**
  * PUBG Point Rankings - Renderer Application
@@ -147,7 +149,7 @@ interface CalculatedPoints {
 }
 
 interface PollingSettings {
-  autoRecentMatchEnabled: boolean;
+  pollingMode: PollingMode;
   runningProcessCheckIntervalSeconds: number;
   notRunningProcessCheckIntervalSeconds: number;
   runningRecentMatchIntervalSeconds: number;
@@ -195,7 +197,7 @@ interface LanguageOption {
 }
 
 const POLLING_SETTING_KEYS = {
-  autoRecentMatchEnabled: 'auto_recent_match_enabled',
+  pollingMode: 'polling_mode',
   runningProcessCheckIntervalSeconds: 'running_process_check_interval_seconds',
   notRunningProcessCheckIntervalSeconds: 'not_running_process_check_interval_seconds',
   runningRecentMatchIntervalSeconds: 'running_recent_match_interval_seconds',
@@ -206,7 +208,7 @@ const POLLING_SETTING_KEYS = {
 } as const;
 
 const DEFAULT_POLLING_SETTINGS: PollingSettings = {
-  autoRecentMatchEnabled: true,
+  pollingMode: 'game',
   runningProcessCheckIntervalSeconds: 5,
   notRunningProcessCheckIntervalSeconds: 30,
   runningRecentMatchIntervalSeconds: 30,
@@ -411,6 +413,7 @@ async function loadNotifications() {
     if (!state.notificationsController) {
       state.notificationsController = createNotificationsPageController({
         getStatus: () => api.notifications.getStatus(),
+        getManualSyncTaskStatus: () => api.sync.getManualTaskStatus(),
         getFailedTasks: () => api.notifications.getFailedTasks(),
         sendSelected: (taskIds: number[]) => api.notifications.sendSelected(taskIds),
         deleteFailedTask: (taskId: number) => api.notifications.deleteFailedTask(taskId),
@@ -420,6 +423,8 @@ async function loadNotifications() {
         restartRuntime: () => api.notifications.restartRuntime(),
         sendTest: () => api.notifications.sendTest(),
         saveGroupId: (groupId: string) => api.notifications.saveGroupId(groupId),
+        getTemplateConfig: () => api.notifications.getTemplateConfig(),
+        saveTemplateConfig: (config) => api.notifications.saveTemplateConfig(config),
         translate: (key: string) => t(key as TranslationKey),
       });
     }
@@ -585,6 +590,9 @@ export class AppState {
   matchLogDetails = new Map<string, MatchDetail>();
   matchLogErrors = new Map<string, string>();
   syncStatus: SyncStatus | null = null;
+  manualSyncTaskStatus: ManualSyncTaskStatus | null = null;
+  syncButtonCooldownUntilMs: number | null = null;
+  manualSyncPollTimerId: number | null = null;
   appStatus: AppStatus | null = null;
   gameProcessStatus: GameProcessStatus | null = null;
   pollingSettings: PollingSettings = { ...DEFAULT_POLLING_SETTINGS };
@@ -1118,18 +1126,19 @@ async function toggleMatchLog(matchId: string) {
   }
 }
 
-function parseBooleanSetting(value: string | undefined, fallback: boolean): boolean {
-  if (!value) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
-  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
-  return fallback;
-}
 
 function parseNumberSetting(value: string | undefined, fallback: number): number {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parsePollingModeSetting(value: string | undefined, fallback: PollingMode): PollingMode {
+  if (value === 'game' || value === 'manual' || value === 'auto') {
+    return value;
+  }
+
+  return fallback;
 }
 
 function setSyncNowButtonState() {
@@ -1138,7 +1147,12 @@ function setSyncNowButtonState() {
   if (!syncNowButton) return;
 
   const isSyncing = state.syncStatus?.isSyncing ?? false;
-  syncNowButton.disabled = isSyncing;
+  syncNowButton.disabled = isSyncButtonLocked({
+    isSyncing,
+    cooldownUntilMs: state.syncButtonCooldownUntilMs,
+    nowMs: Date.now(),
+  });
+
   if (label) {
     label.textContent = isSyncing ? t('dashboard.syncingLatestMatch') : t('dashboard.syncNow');
   }
@@ -1380,6 +1394,10 @@ async function loadAppStatus() {
     state.hasConfiguredApiKey = Boolean(activeAccount?.pubgApiKey?.trim());
     state.syncStatus = state.appStatus.syncStatus;
     updateSyncIndicator();
+
+    if (shouldPollManualSyncStatus(state.manualSyncTaskStatus)) {
+      ensureManualSyncPolling();
+    }
   } catch (error) {
     console.error('Failed to load app status:', error);
   }
@@ -1456,9 +1474,9 @@ async function loadPollingSettings() {
     const values = new Map(settings.map(setting => [setting.key, setting.value]));
 
     const pollingSettings: PollingSettings = {
-      autoRecentMatchEnabled: parseBooleanSetting(
-        values.get(POLLING_SETTING_KEYS.autoRecentMatchEnabled),
-        DEFAULT_POLLING_SETTINGS.autoRecentMatchEnabled,
+      pollingMode: parsePollingModeSetting(
+        values.get(POLLING_SETTING_KEYS.pollingMode),
+        DEFAULT_POLLING_SETTINGS.pollingMode,
       ),
       runningProcessCheckIntervalSeconds: parseNumberSetting(
         values.get(POLLING_SETTING_KEYS.runningProcessCheckIntervalSeconds),
@@ -1498,7 +1516,7 @@ async function loadPollingSettings() {
 }
 
 function applyPollingSettingsToForm() {
-  const autoEnabled = document.getElementById('setting-auto-recent-match-enabled') as HTMLInputElement | null;
+  const pollingModeSelect = document.getElementById('setting-polling-mode') as HTMLSelectElement | null;
   const runningProcessCheck = document.getElementById('setting-running-process-check-interval-seconds') as HTMLInputElement | null;
   const notRunningProcessCheck = document.getElementById('setting-not-running-process-check-interval-seconds') as HTMLInputElement | null;
   const runningRecentMatch = document.getElementById('setting-running-recent-match-interval-seconds') as HTMLInputElement | null;
@@ -1507,7 +1525,7 @@ function applyPollingSettingsToForm() {
   const retryDelay = document.getElementById('setting-recent-match-retry-delay-seconds') as HTMLInputElement | null;
   const retryLimit = document.getElementById('setting-recent-match-retry-limit') as HTMLInputElement | null;
 
-  if (autoEnabled) autoEnabled.checked = state.pollingSettings.autoRecentMatchEnabled;
+  if (pollingModeSelect) pollingModeSelect.value = state.pollingSettings.pollingMode;
   if (runningProcessCheck) runningProcessCheck.value = state.pollingSettings.runningProcessCheckIntervalSeconds.toString();
   if (notRunningProcessCheck) notRunningProcessCheck.value = state.pollingSettings.notRunningProcessCheckIntervalSeconds.toString();
   if (runningRecentMatch) runningRecentMatch.value = state.pollingSettings.runningRecentMatchIntervalSeconds.toString();
@@ -2471,7 +2489,7 @@ async function handlePollingSettingsSubmit(e: Event) {
   const form = e.target as HTMLFormElement;
   const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
 
-  const autoEnabled = document.getElementById('setting-auto-recent-match-enabled') as HTMLInputElement | null;
+  const pollingModeSelect = document.getElementById('setting-polling-mode') as HTMLSelectElement | null;
   const runningProcessCheck = document.getElementById('setting-running-process-check-interval-seconds') as HTMLInputElement | null;
   const notRunningProcessCheck = document.getElementById('setting-not-running-process-check-interval-seconds') as HTMLInputElement | null;
   const runningRecentMatch = document.getElementById('setting-running-recent-match-interval-seconds') as HTMLInputElement | null;
@@ -2480,7 +2498,7 @@ async function handlePollingSettingsSubmit(e: Event) {
   const retryDelay = document.getElementById('setting-recent-match-retry-delay-seconds') as HTMLInputElement | null;
   const retryLimit = document.getElementById('setting-recent-match-retry-limit') as HTMLInputElement | null;
 
-  if (!autoEnabled || !runningProcessCheck || !notRunningProcessCheck || !runningRecentMatch || !cooldownPolling || !cooldownWindow || !retryDelay || !retryLimit) {
+  if (!pollingModeSelect || !runningProcessCheck || !notRunningProcessCheck || !runningRecentMatch || !cooldownPolling || !cooldownWindow || !retryDelay || !retryLimit) {
     showToast(t('toast.pollingUnavailable'), 'error');
     return;
   }
@@ -2490,7 +2508,7 @@ async function handlePollingSettingsSubmit(e: Event) {
 
     const api = getAPI();
     const entries: Array<[string, string]> = [
-      [POLLING_SETTING_KEYS.autoRecentMatchEnabled, autoEnabled.checked ? '1' : '0'],
+      [POLLING_SETTING_KEYS.pollingMode, pollingModeSelect.value],
       [POLLING_SETTING_KEYS.runningProcessCheckIntervalSeconds, runningProcessCheck.value],
       [POLLING_SETTING_KEYS.notRunningProcessCheckIntervalSeconds, notRunningProcessCheck.value],
       [POLLING_SETTING_KEYS.runningRecentMatchIntervalSeconds, runningRecentMatch.value],
@@ -2514,8 +2532,14 @@ async function handlePollingSettingsSubmit(e: Event) {
 
 async function handleImmediateRecentMatchCheck() {
   const syncNowButton = document.getElementById('btn-sync-now') as HTMLButtonElement | null;
-  if (state.syncStatus?.isSyncing) return;
-  
+  if (isSyncButtonLocked({
+    isSyncing: state.syncStatus?.isSyncing ?? false,
+    cooldownUntilMs: state.syncButtonCooldownUntilMs,
+    nowMs: Date.now(),
+  })) {
+    return;
+  }
+
   // Check for valid API key before proceeding
   if (!(await hasValidApiKey())) return;
 
@@ -2530,15 +2554,64 @@ async function handleImmediateRecentMatchCheck() {
       return;
     }
 
-    showToast(t('sync.checkRecentCompleted'));
-    await Promise.all([loadDashboard(), loadMatches(), loadPointRecords()]);
+    state.syncButtonCooldownUntilMs = Date.now() + 3_000;
+    state.manualSyncTaskStatus = {
+      state: 'syncing',
+      startedAt: null,
+      finishedAt: null,
+      errorMessage: null,
+      trigger: 'manual',
+    };
+    showToast(t('sync.manualStarted'));
+    window.setTimeout(() => {
+      setSyncNowButtonState();
+    }, 3_000);
+
+    await Promise.all([loadAppStatus(), refreshManualSyncTaskStatus()]);
+    setSyncNowButtonState();
+    ensureManualSyncPolling();
   } catch (error) {
-    console.error('Failed to check recent match:', error);
+    console.error('Failed to start manual sync:', error);
     showToast(t('sync.checkRecentFailed'), 'error');
   } finally {
     await loadAppStatus();
     setSyncNowButtonState();
   }
+}
+
+async function refreshManualSyncTaskStatus() {
+  try {
+    const api = getAPI();
+    const previous = state.manualSyncTaskStatus;
+    const next = await api.sync.getManualTaskStatus();
+    state.manualSyncTaskStatus = next;
+
+    const toastEvent = getManualSyncToastEvent(previous, next);
+    if (toastEvent === 'success') {
+      showToast(t('sync.manualCompleted'));
+      await Promise.all([loadDashboard(), loadMatches(), loadPointRecords()]);
+    } else if (toastEvent === 'failed') {
+      showToast(next.errorMessage || t('sync.manualFailed'), 'error');
+    }
+
+    if (next.state !== 'syncing' && state.manualSyncPollTimerId !== null) {
+      window.clearInterval(state.manualSyncPollTimerId);
+      state.manualSyncPollTimerId = null;
+    }
+  } catch (error) {
+    console.error('Failed to refresh manual sync task status:', error);
+  }
+}
+
+function ensureManualSyncPolling() {
+  if (state.manualSyncPollTimerId !== null) {
+    return;
+  }
+
+  state.manualSyncPollTimerId = window.setInterval(() => {
+    void refreshManualSyncTaskStatus();
+    void loadAppStatus();
+  }, 2000);
 }
 
 // Global functions for inline handlers

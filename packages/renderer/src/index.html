@@ -374,10 +374,11 @@
              <h1 data-i18n="notifications.title">Message Notifications</h1>
              <p class="view-subtitle" data-i18n="notifications.subtitle">Manage NapCat runtime, QQ login, group delivery, and failed sends.</p>
            </header>
-           <div class="view-content">
-             <div class="card card-wide" id="notifications-status-card"></div>
-             <div class="card card-wide" id="notifications-runtime-card"></div>
-             <div class="card card-wide" id="notifications-login-card"></div>
+            <div class="view-content">
+              <div class="card card-wide" id="notifications-status-card"></div>
+              <div class="card card-wide" id="notifications-manual-sync-card"></div>
+              <div class="card card-wide" id="notifications-runtime-card"></div>
+              <div class="card card-wide" id="notifications-login-card"></div>
              <div class="card card-wide" id="notifications-config-card"></div>
              <div class="card card-wide" id="notifications-failed-card"></div>
              <div class="card card-wide" id="notifications-template-card"></div>
@@ -422,9 +423,14 @@
                 </div>
                 <div class="card-body">
                   <form id="polling-settings-form">
-                    <div class="form-group form-checkbox">
-                      <input type="checkbox" id="setting-auto-recent-match-enabled" class="form-checkbox-input">
-                      <label for="setting-auto-recent-match-enabled" data-i18n="polling.autoRecent">Enable automatic recent-match checks</label>
+                    <div class="form-group">
+                      <label for="setting-polling-mode" data-i18n="polling.mode">Polling Mode</label>
+                      <select id="setting-polling-mode" class="form-select">
+                        <option value="game" data-i18n="polling.modeGame">Game Polling</option>
+                        <option value="manual" data-i18n="polling.modeManual">Manual Polling</option>
+                        <option value="auto" data-i18n="polling.modeAuto">Automatic Polling</option>
+                      </select>
+                      <p class="form-help" data-i18n="polling.modeHelp">Choose how recent-match checks are triggered.</p>
                     </div>
 
                     <div class="form-row">

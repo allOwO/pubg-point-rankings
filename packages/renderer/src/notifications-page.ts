@@ -1,5 +1,6 @@
 import type {
   FailedNotificationSendStatus,
+  ManualSyncTaskStatus,
   NotificationEnvStatus,
   NotificationFailedTask,
   NotificationPageStatus,
@@ -18,8 +19,18 @@ interface FailedTaskState {
   selected: boolean;
 }
 
+export function getManualSyncStatusTone(
+  status: ManualSyncTaskStatus | null,
+): 'neutral' | 'info' | 'success' | 'error' {
+  if (!status || status.state === 'idle') return 'neutral';
+  if (status.state === 'syncing') return 'info';
+  if (status.state === 'success') return 'success';
+  return 'error';
+}
+
 class NotificationsPageControllerImpl implements NotificationsPageController {
   private status: NotificationPageStatus | null = null;
+  private manualSyncStatus: ManualSyncTaskStatus | null = null;
   private failedTasks: Map<number, FailedTaskState> = new Map();
   private selectedTasks: Set<number> = new Set();
   private confirmDeleteTaskId: number | null = null;
@@ -32,12 +43,14 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     this.renderLoadingState();
 
     try {
-      const [status, tasks] = await Promise.all([
+      const [status, manualSyncStatus, tasks] = await Promise.all([
         this.api.getStatus(),
+        this.api.getManualSyncTaskStatus(),
         this.api.getFailedTasks(),
       ]);
 
       this.status = status;
+      this.manualSyncStatus = manualSyncStatus;
       this.failedTasks.clear();
       for (const task of tasks) {
         this.failedTasks.set(task.id, {
@@ -57,8 +70,14 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
 
   async refreshStatus(): Promise<void> {
     try {
-      this.status = await this.api.getStatus();
+      const [status, manualSyncStatus] = await Promise.all([
+        this.api.getStatus(),
+        this.api.getManualSyncTaskStatus(),
+      ]);
+      this.status = status;
+      this.manualSyncStatus = manualSyncStatus;
       this.renderStatusCard();
+      this.renderManualSyncCard();
     } catch (error) {
       console.error('Failed to refresh status:', error);
     }
@@ -169,6 +188,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
 
   private render(): void {
     this.renderStatusCard();
+    this.renderManualSyncCard();
     this.renderRuntimeCard();
     this.renderLoginCard();
     this.renderConfigCard();
@@ -192,6 +212,37 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
         <div class="notification-status-details">
           ${this.status.runtimeVersion ? `<p>Runtime: ${this.status.runtimeVersion}</p>` : ''}
           ${this.status.lastError ? `<p class="error-text">Error: ${this.status.lastError}</p>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderManualSyncCard(): void {
+    const card = document.getElementById('notifications-manual-sync-card');
+    if (!card) return;
+
+    const tone = getManualSyncStatusTone(this.manualSyncStatus);
+    const stateKey = this.manualSyncStatus?.state ?? 'idle';
+    const startedAt = this.manualSyncStatus?.startedAt
+      ? this.formatDateTime(this.manualSyncStatus.startedAt)
+      : this.api.translate('notifications.manualSyncNotStarted');
+    const finishedAt = this.manualSyncStatus?.finishedAt
+      ? this.formatDateTime(this.manualSyncStatus.finishedAt)
+      : this.api.translate('notifications.manualSyncPending');
+    const errorText = this.manualSyncStatus?.errorMessage
+      ? `<p class="error-text">${this.manualSyncStatus.errorMessage}</p>`
+      : '';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <h3 data-i18n="notifications.manualSyncTitle">Manual Sync Status</h3>
+        <span class="notification-status-pill ${tone}">${this.api.translate(`notifications.manualSyncState.${stateKey}`)}</span>
+      </div>
+      <div class="card-body">
+        <div class="notification-status-details">
+          <p><strong>${this.api.translate('notifications.manualSyncStartedAt')}</strong>: ${startedAt}</p>
+          <p><strong>${this.api.translate('notifications.manualSyncFinishedAt')}</strong>: ${finishedAt}</p>
+          ${errorText}
         </div>
       </div>
     `;
@@ -443,6 +494,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
   private renderLoadingState(): void {
     const sections = [
       'notifications-status-card',
+      'notifications-manual-sync-card',
       'notifications-runtime-card',
       'notifications-login-card',
       'notifications-config-card',
@@ -468,6 +520,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
   private renderErrorState(): void {
     const sections = [
       'notifications-status-card',
+      'notifications-manual-sync-card',
       'notifications-runtime-card',
       'notifications-login-card',
       'notifications-config-card',
@@ -669,6 +722,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
 
 interface NotificationAPI {
   getStatus(): Promise<NotificationPageStatus>;
+  getManualSyncTaskStatus(): Promise<ManualSyncTaskStatus>;
   getFailedTasks(): Promise<NotificationFailedTask[]>;
   sendSelected(taskIds: number[]): Promise<{ sentIds: number[]; failedIds: number[] }>;
   deleteFailedTask(taskId: number): Promise<void>;
@@ -678,6 +732,8 @@ interface NotificationAPI {
   restartRuntime(): Promise<NotificationPageStatus>;
   sendTest(): Promise<void>;
   saveGroupId(groupId: string): Promise<NotificationPageStatus>;
+  getTemplateConfig(): Promise<NotificationTemplateConfig>;
+  saveTemplateConfig(config: NotificationTemplateConfig): Promise<NotificationTemplateConfig>;
   translate(key: string): string;
 }
 

@@ -5,6 +5,7 @@ import type {
   CalculatedPoints,
   CreatePointRuleInput,
   CreateTeammateInput,
+  ManualSyncTaskStatus,
   Match,
   MatchDetail,
   MatchDamageEvent,
@@ -33,6 +34,7 @@ import type {
   NotificationEnvStatus,
   NotificationFailedTask,
   NotificationPageStatus,
+  NotificationTemplateConfig,
   UnsettledBattleSummary,
   UnsettledPlayerSummary,
 } from '@pubg-point-rankings/shared';
@@ -146,9 +148,12 @@ export interface AppAPIClient {
     restartRuntime(): Promise<NotificationPageStatus>;
     sendTest(): Promise<void>;
     saveGroupId(groupId: string): Promise<NotificationPageStatus>;
+    getTemplateConfig(): Promise<NotificationTemplateConfig>;
+    saveTemplateConfig(config: NotificationTemplateConfig): Promise<NotificationTemplateConfig>;
   };
   sync: {
     getStatus(): Promise<SyncStatus>;
+    getManualTaskStatus(): Promise<ManualSyncTaskStatus>;
     start(): Promise<SyncStartResult>;
     startMatch(matchId: string, platform?: string): Promise<SyncStartMatchResult>;
   };
@@ -180,6 +185,14 @@ interface SyncStatusDto {
   lastSyncAt: string | null;
   currentMatchId: string | null;
   error: string | null;
+}
+
+interface ManualSyncTaskStatusDto {
+  state: ManualSyncTaskStatus['state'];
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMessage: string | null;
+  trigger: 'manual';
 }
 
 interface AppStatusDto {
@@ -488,6 +501,16 @@ function hydrateSyncStatus(dto: SyncStatusDto): SyncStatus {
   return {
     ...dto,
     lastSyncAt: toDate(dto.lastSyncAt),
+  };
+}
+
+function hydrateManualSyncTaskStatus(dto: ManualSyncTaskStatusDto): ManualSyncTaskStatus {
+  return {
+    state: dto.state,
+    startedAt: dto.startedAt ? new Date(dto.startedAt) : null,
+    finishedAt: dto.finishedAt ? new Date(dto.finishedAt) : null,
+    errorMessage: dto.errorMessage,
+    trigger: dto.trigger,
   };
 }
 
@@ -833,10 +856,15 @@ export function getAPI(): AppAPIClient {
         await invokeRequired('notifications_send_test');
       },
       saveGroupId: async (groupId) => {
-        await invokeRequired('settings_set', { key: 'notification_group_id', value: groupId });
-        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_get_status');
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_save_group_id', {
+          input: { groupId },
+        });
         return hydrateNotificationPageStatus(dto);
       },
+      getTemplateConfig: async () => invokeRequired<NotificationTemplateConfig>('notifications_get_template_config'),
+      saveTemplateConfig: async (config) => invokeRequired<NotificationTemplateConfig>('notifications_save_template_config', {
+        input: { config },
+      }),
     },
     sync: {
       getStatus: async () => hydrateSyncStatus(await invokeOptional<SyncStatusDto>('sync_get_status', undefined, {
@@ -845,6 +873,15 @@ export function getAPI(): AppAPIClient {
         currentMatchId: null,
         error: null,
       })),
+      getManualTaskStatus: async () => hydrateManualSyncTaskStatus(
+        await invokeOptional<ManualSyncTaskStatusDto>('sync_get_manual_task_status', undefined, {
+          state: 'idle',
+          startedAt: null,
+          finishedAt: null,
+          errorMessage: null,
+          trigger: 'manual',
+        }),
+      ),
       start: async () => invokeOptional<SyncStartResult>('sync_start', undefined, {
         success: false,
         error: 'Sync start is not available in the current Tauri backend yet.',
