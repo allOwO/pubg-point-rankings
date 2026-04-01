@@ -1,0 +1,70 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    name: Build and publish ${{ matrix.platform_label }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            platform_label: macOS Apple Silicon
+            args: '--target aarch64-apple-darwin'
+          - runner: macos-latest
+            platform_label: macOS Intel
+            args: '--target x86_64-apple-darwin'
+          - runner: windows-latest
+            platform_label: Windows x64
+            args: ''
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.runner == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Restore Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build and publish Tauri app
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: PUBG Point Rankings ${{ github.ref_name }}
+          releaseBody: |
+            Automated desktop build for `${{ github.ref_name }}`.
+
+            Downloads:
+            - macOS
+            - Windows 10+
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+          releaseAssetNamePattern: '[name]_[version]_[platform]_[arch][_setup][ext]'
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
