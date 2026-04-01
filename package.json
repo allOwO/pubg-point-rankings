@@ -25,7 +25,7 @@
     "package:dir": "npm run tauri:build -- --bundles app",
     "dist": "npm run tauri:build",
     "dist:win": "npm run tauri:build -- --bundles nsis",
-    "dist:mac": "npm run tauri:build -- --bundles app",
+    "dist:mac": "CI=true npm run tauri:build -- --bundles dmg",
     "dist:linux": "npm run tauri:build -- --bundles appimage,deb",
     "tauri": "tauri",
     "tauri:renderer:dev": "npm run dev --workspace @pubg-point-rankings/renderer",
