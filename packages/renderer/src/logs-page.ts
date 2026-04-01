@@ -27,20 +27,16 @@ function escapeHtml(value: string): string {
     .split("'").join('&#39;');
 }
 
-function formatLogLine(entry: LogEntry, formatDateTime: (value: Date) => string): string {
-  return `${formatDateTime(entry.timestamp)} [${entry.level}] [${entry.source}] ${entry.message}`;
-}
-
-function getLevelBadgeClass(level: LogLevel): string {
+function getLevelClass(level: LogLevel): string {
   switch (level) {
     case 'ERROR':
-      return 'badge-error';
+      return 'logs-level-error';
     case 'WARN':
-      return 'badge-warning';
+      return 'logs-level-warn';
     case 'INFO':
-      return 'badge-info';
+      return 'logs-level-info';
     default:
-      return 'badge-success';
+      return 'logs-level-debug';
   }
 }
 
@@ -107,20 +103,6 @@ class LogsPageControllerImpl implements LogsPageController {
       }
     });
 
-    document.getElementById('btn-logs-copy')?.addEventListener('click', async () => {
-      try {
-        const filteredEntries = filterLogEntries(this.entries, this.searchTerm, this.levelFilter);
-        const content = filteredEntries
-          .map((entry) => formatLogLine(entry, this.options.formatDateTime))
-          .join('\n');
-        await navigator.clipboard.writeText(content);
-        this.options.showToast(this.options.translate('toast.logsCopied'));
-      } catch (error) {
-        console.error('Failed to copy logs:', error);
-        this.options.showToast(this.options.translate('toast.logsCopyFailed'), 'error');
-      }
-    });
-
     document.getElementById('logs-search')?.addEventListener('input', (event) => {
       this.searchTerm = (event.target as HTMLInputElement).value;
       this.renderEntries();
@@ -141,68 +123,69 @@ class LogsPageControllerImpl implements LogsPageController {
 
   private renderHeader() {
     const statusBadge = document.getElementById('logs-status-badge');
-    const directoryEl = document.getElementById('logs-directory-value');
-    const fileEl = document.getElementById('logs-file-value');
 
     if (statusBadge) {
-      statusBadge.textContent = this.status?.enabled
-        ? this.options.translate('logs.enabled')
-        : this.options.translate('logs.disabled');
-      statusBadge.className = `badge ${this.status?.enabled ? 'badge-success' : 'badge-warning'}`;
-    }
+      const isEnabled = this.status?.enabled ?? false;
+      statusBadge.className = `logs-status-badge ${isEnabled ? 'is-enabled' : 'is-disabled'}`;
+      
+      const readyText = statusBadge.querySelector('.ready-text');
+      if (readyText) {
+        readyText.textContent = isEnabled
+          ? this.options.translate('logs.enabled')
+          : this.options.translate('logs.disabled');
+      }
 
-    if (directoryEl) {
-      directoryEl.textContent = this.status?.directory ?? '--';
-    }
-
-    if (fileEl) {
-      fileEl.textContent = this.status?.logFilePath ?? this.options.translate('logs.noFileYet');
+      const readyDot = statusBadge.querySelector('.ready-dot');
+      if (readyDot) {
+        readyDot.className = 'ready-dot';
+      }
     }
   }
 
   private renderEntries() {
-    const tableWrapper = document.getElementById('logs-table-wrapper');
-    const tbody = document.getElementById('logs-table-body');
+    const terminal = document.getElementById('logs-terminal');
     const emptyState = document.getElementById('logs-empty');
-    const countEl = document.getElementById('logs-count');
-    if (!tableWrapper || !tbody || !emptyState || !countEl) {
+    if (!terminal || !emptyState) {
       return;
     }
 
     const filteredEntries = filterLogEntries(this.entries, this.searchTerm, this.levelFilter);
-    countEl.textContent = `${filteredEntries.length}`;
 
     if (filteredEntries.length === 0) {
-      tableWrapper.classList.add('hidden');
+      terminal.classList.add('hidden');
       emptyState.classList.remove('hidden');
-      tbody.innerHTML = '';
+      terminal.innerHTML = '';
       return;
     }
 
-    tbody.innerHTML = filteredEntries.map((entry) => `
-      <tr>
-        <td class="logs-table-timestamp">${escapeHtml(this.options.formatDateTime(entry.timestamp))}</td>
-        <td><span class="badge ${getLevelBadgeClass(entry.level)}">${escapeHtml(entry.level)}</span></td>
-        <td class="logs-table-source">${escapeHtml(entry.source)}</td>
-        <td class="logs-table-message">${escapeHtml(entry.message)}</td>
-      </tr>
-    `).join('');
+    terminal.innerHTML = filteredEntries.map((entry) => {
+      const timestamp = escapeHtml(this.options.formatDateTime(entry.timestamp));
+      const level = escapeHtml(entry.level);
+      const source = escapeHtml(entry.source);
+      const message = escapeHtml(entry.message);
+      const levelClass = getLevelClass(entry.level);
+
+      return `
+        <div class="logs-terminal-line">
+          <span class="logs-terminal-timestamp">${timestamp}</span>
+          <span class="logs-terminal-level ${levelClass}">${level}</span>
+          <span class="logs-terminal-source">[${source}]</span>
+          <span class="logs-terminal-message">${message}</span>
+        </div>
+      `;
+    }).join('');
 
     emptyState.classList.add('hidden');
-    tableWrapper.classList.remove('hidden');
+    terminal.classList.remove('hidden');
   }
 
   private renderErrorState() {
-    const tableWrapper = document.getElementById('logs-table-wrapper');
+    const terminal = document.getElementById('logs-terminal');
     const emptyState = document.getElementById('logs-empty');
-    const countEl = document.getElementById('logs-count');
     const emptyTitle = emptyState?.querySelector<HTMLElement>('h3');
     const emptyHint = emptyState?.querySelector<HTMLElement>('p');
 
-    if (countEl) {
-      countEl.textContent = '0';
-    }
-    tableWrapper?.classList.add('hidden');
+    terminal?.classList.add('hidden');
     emptyState?.classList.remove('hidden');
     if (emptyTitle) {
       emptyTitle.textContent = this.options.translate('logs.loadFailedTitle');

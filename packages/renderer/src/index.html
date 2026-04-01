@@ -407,83 +407,43 @@
           </section>
 
           <section id="view-logs" class="view">
-            <header class="view-header">
+            <header class="view-header logs-view-header">
               <h1 data-i18n="logs.title">Logs</h1>
-              <p class="view-subtitle" data-i18n="logs.subtitle">Inspect application and business logs for debugging.</p>
             </header>
-            <div class="view-content">
-              <div class="card card-wide">
-                <div class="card-header">
-                  <div>
-                    <h3 data-i18n="logs.currentStatus">Current Status</h3>
-                    <p class="card-subtitle" data-i18n="logs.currentStatusHint">Review whether file logging is enabled and which file is active now.</p>
+            <div class="view-content logs-view-content">
+              <div class="logs-terminal-card">
+                <div class="logs-status-strip">
+                  <span class="logs-status-strip-label" data-i18n="logs.statusLabel">Status</span>
+                  <span id="logs-status-badge" class="logs-status-badge is-enabled">
+                    <span class="ready-dot"></span>
+                    <span class="ready-text" data-i18n="logs.enabled">Enabled</span>
+                  </span>
+                </div>
+                <div class="logs-terminal-toolbar">
+                  <div class="logs-terminal-search">
+                      <input type="text" id="logs-search" class="form-input logs-terminal-input" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search message or source">
                   </div>
-                  <div class="logs-toolbar-actions">
-                    <button type="button" class="btn btn-secondary" id="btn-logs-refresh" data-i18n="logs.refresh">Refresh</button>
-                    <button type="button" class="btn btn-secondary" id="btn-logs-open-directory" data-i18n="logs.openDirectory">Open Directory</button>
-                    <button type="button" class="btn btn-secondary" id="btn-logs-copy" data-i18n="logs.copyVisible">Copy Visible</button>
+                  <div class="logs-terminal-filter">
+                    <select id="logs-level-filter" class="form-select logs-terminal-select">
+                      <option value="ALL" data-i18n="logs.levelFilterAll">All Levels</option>
+                      <option value="ERROR">ERROR</option>
+                      <option value="WARN">WARN</option>
+                      <option value="INFO">INFO</option>
+                      <option value="DEBUG">DEBUG</option>
+                    </select>
+                  </div>
+                  <div class="logs-terminal-actions">
+                    <button type="button" class="btn btn-secondary btn-small" id="btn-logs-refresh" data-i18n="logs.refresh">Refresh</button>
+                    <button type="button" class="btn btn-secondary btn-small" id="btn-logs-open-directory" data-i18n="logs.openDirectory">Open Directory</button>
                   </div>
                 </div>
-                <div class="card-body logs-status-grid">
-                  <div class="status-item">
-                    <span class="status-label" data-i18n="logs.statusLabel">Status</span>
-                    <span id="logs-status-badge" class="badge badge-success" data-i18n="logs.enabled">Enabled</span>
-                  </div>
-                  <div class="status-item logs-status-item-wide">
-                    <span class="status-label" data-i18n="logs.directoryLabel">Directory</span>
-                    <span id="logs-directory-value" class="status-value">--</span>
-                  </div>
-                  <div class="status-item logs-status-item-wide">
-                    <span class="status-label" data-i18n="logs.fileLabel">Latest File</span>
-                    <span id="logs-file-value" class="status-value">--</span>
-                  </div>
-                </div>
-              </div>
 
-              <div class="card card-wide">
-                <div class="card-header">
-                  <div>
-                    <h3 data-i18n="logs.entriesTitle">Recent Entries</h3>
-                    <p class="card-subtitle"><span id="logs-count">0</span> <span data-i18n="logs.entriesCountSuffix">entries</span></p>
-                  </div>
+                <div class="logs-terminal-empty empty-state hidden" id="logs-empty">
+                  <h3 data-i18n="logs.emptyTitle">No Logs Yet</h3>
+                  <p data-i18n="logs.emptyHint">Generate some activity or refresh after enabling logging.</p>
                 </div>
-                <div class="card-body">
-                  <div class="logs-toolbar">
-                    <div class="form-group logs-toolbar-search">
-                      <label for="logs-search" data-i18n="logs.searchLabel">Search</label>
-                      <input type="text" id="logs-search" class="form-input" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search message or source">
-                    </div>
-                    <div class="form-group logs-toolbar-filter">
-                      <label for="logs-level-filter" data-i18n="logs.levelFilterLabel">Level</label>
-                      <select id="logs-level-filter" class="form-select">
-                        <option value="ALL" data-i18n="logs.levelFilterAll">All Levels</option>
-                        <option value="ERROR">ERROR</option>
-                        <option value="WARN">WARN</option>
-                        <option value="INFO">INFO</option>
-                        <option value="DEBUG">DEBUG</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  <div class="empty-state hidden" id="logs-empty">
-                    <h3 data-i18n="logs.emptyTitle">No Logs Yet</h3>
-                    <p data-i18n="logs.emptyHint">Generate some activity or refresh after enabling logging.</p>
-                  </div>
-
-                  <div class="table-wrapper hidden" id="logs-table-wrapper">
-                    <table class="data-table logs-table">
-                      <thead>
-                        <tr>
-                          <th data-i18n="logs.timestamp">Time</th>
-                          <th data-i18n="logs.level">Level</th>
-                          <th data-i18n="logs.source">Source</th>
-                          <th data-i18n="logs.message">Message</th>
-                        </tr>
-                      </thead>
-                      <tbody id="logs-table-body"></tbody>
-                    </table>
-                  </div>
-                </div>
+                <div class="logs-terminal" id="logs-terminal"></div>
               </div>
             </div>
           </section>
