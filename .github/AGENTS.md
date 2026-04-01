@@ -35,7 +35,7 @@ Guidance for agents editing GitHub Actions workflows and release automation in t
 - `**/AppData/**`
 
 ## Workflow editing rules
-- Prefer `tauri-apps/tauri-action@v1` for release builds.
+- Prefer `tauri-apps/tauri-action@v0.6.2` for release builds.
 - Keep `permissions` minimal and limited to what release publishing requires.
 - Do not enable updater JSON uploads unless auto-update support is explicitly added later.
 - Do not upload plain binaries unless there is an explicit portable-build requirement.
