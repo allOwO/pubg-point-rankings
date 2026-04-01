@@ -5,7 +5,10 @@ use crate::{
     dto::sync_status::SyncStatusDto,
     error::{AppError, ErrorPayload},
     repository::{accounts::AccountsRepository, settings::SettingsRepository},
-    services::sync,
+    services::{
+        logs::{self, LogLevel},
+        sync,
+    },
 };
 
 use serde::Serialize;
@@ -61,8 +64,37 @@ pub fn sync_start(state: State<'_, AppState>) -> Result<SyncStartResultDto, Erro
         message: "database mutex is poisoned".to_string(),
     })?;
 
-    let result = sync::sync_recent_matches_batch(&connection, &state.sync_runtime_status, 12)
-        .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+    let _ = logs::write_log_record(
+        &connection,
+        LogLevel::Info,
+        "sync",
+        "manual recent-match sync requested",
+    );
+
+    let result = match sync::sync_recent_matches_batch(&connection, &state.sync_runtime_status, 12)
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = logs::write_log_record(
+                &connection,
+                LogLevel::Error,
+                "sync",
+                &format!("manual recent-match sync failed: {error}"),
+            );
+            return Err(error.into());
+        }
+    };
+
+    let level = if result.success {
+        LogLevel::Info
+    } else {
+        LogLevel::Error
+    };
+    let summary = result
+        .error
+        .clone()
+        .unwrap_or_else(|| "manual recent-match sync completed".to_string());
+    let _ = logs::write_log_record(&connection, level, "sync", &summary);
 
     Ok(SyncStartResultDto {
         success: result.success,
@@ -80,13 +112,41 @@ pub fn sync_start_match(
         message: "database mutex is poisoned".to_string(),
     })?;
 
-    let result = sync::sync_match(
+    let _ = logs::write_log_record(
+        &connection,
+        LogLevel::Info,
+        "sync",
+        &format!("manual match sync requested for {match_id}"),
+    );
+
+    let result = match sync::sync_match(
         &connection,
         &state.sync_runtime_status,
         &match_id,
         platform.as_deref(),
-    )
-    .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = logs::write_log_record(
+                &connection,
+                LogLevel::Error,
+                "sync",
+                &format!("manual match sync failed for {match_id}: {error}"),
+            );
+            return Err(error.into());
+        }
+    };
+
+    let level = if result.success {
+        LogLevel::Info
+    } else {
+        LogLevel::Error
+    };
+    let summary = result
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("manual match sync completed for {match_id}"));
+    let _ = logs::write_log_record(&connection, level, "sync", &summary);
 
     Ok(SyncStartMatchResultDto {
         success: result.success,

@@ -1,3 +1,4 @@
+pub mod logs;
 pub mod napcat_runtime;
 pub mod notifications;
 pub mod polling;

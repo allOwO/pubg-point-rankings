@@ -1,4 +1,4 @@
-pub const SCHEMA_VERSION: i64 = 11;
+pub const SCHEMA_VERSION: i64 = 12;
 
 pub const INITIAL_SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -272,11 +272,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
   applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (11);
+INSERT OR IGNORE INTO schema_version (version) VALUES (12);
 "#;
 
 pub const DEFAULT_DATA_SQL: &str = r#"
-INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '11', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('schema_version', '12', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('auto_recent_match_enabled', '1', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('running_process_check_interval_seconds', '5', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('not_running_process_check_interval_seconds', '30', CURRENT_TIMESTAMP);
@@ -285,4 +285,6 @@ INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('cooldown_po
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('cooldown_window_minutes', '40', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('recent_match_retry_delay_seconds', '15', CURRENT_TIMESTAMP);
 INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('recent_match_retry_limit', '2', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('logging_enabled', '1', CURRENT_TIMESTAMP);
+INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('logging_directory', '', CURRENT_TIMESTAMP);
 "#;

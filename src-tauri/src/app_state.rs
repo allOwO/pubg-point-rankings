@@ -12,6 +12,7 @@ use crate::{
         accounts::AccountsRepository, points::PointRecordsRepository, settings::SettingsRepository,
     },
     runtime::game_state::GameProcessRuntime,
+    services::logs::{self, LogLevel},
     services::sync::SyncRuntimeStatus,
 };
 
@@ -30,6 +31,17 @@ impl AppState {
         let (connection, db_path) = open_database()?;
         bootstrap_database(&connection)?;
         ensure_active_account_point_history_repaired(&connection)?;
+
+        let _ = logs::write_log_record(
+            &connection,
+            LogLevel::Info,
+            "app",
+            &format!(
+                "application state initialized (version={}, database={})",
+                env!("CARGO_PKG_VERSION"),
+                db_path.display()
+            ),
+        );
 
         Ok(Self {
             db: Arc::new(Mutex::new(connection)),
