@@ -445,6 +445,12 @@ body {
   gap: var(--space-6);
 }
 
+#view-logs .view-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
 #view-notifications .view-content {
   display: flex;
   flex-direction: column;
@@ -3281,6 +3287,64 @@ body {
 .notification-config-placeholder p,
 .notification-failed-empty p {
   color: var(--color-text-secondary);
+}
+
+/* ================================
+   Logs View
+   ================================ */
+
+.logs-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+.logs-status-item-wide {
+  min-width: 0;
+}
+
+.logs-status-item-wide .status-value {
+  word-break: break-all;
+}
+
+.logs-toolbar,
+.logs-toolbar-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.logs-toolbar {
+  margin-bottom: var(--space-5);
+  align-items: flex-end;
+}
+
+.logs-toolbar-search {
+  flex: 1 1 360px;
+}
+
+.logs-toolbar-filter {
+  width: 180px;
+}
+
+.logs-table-timestamp,
+.logs-table-source,
+.logs-table-message {
+  word-break: break-word;
+}
+
+.logs-table-message {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 960px) {
+  .logs-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-toolbar-filter {
+    width: 100%;
+  }
 }
 
 @media (max-width: 768px) {
