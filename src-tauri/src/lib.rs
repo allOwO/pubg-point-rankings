@@ -72,6 +72,7 @@ pub fn run() {
             commands::settings::settings_get_all,
             commands::settings::settings_set,
             commands::sync::sync_get_status,
+            commands::sync::sync_get_manual_task_status,
             commands::sync::sync_start,
             commands::sync::sync_start_match,
             commands::teammates::teammates_create,

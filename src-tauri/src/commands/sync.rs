@@ -2,10 +2,10 @@ use tauri::State;
 
 use crate::{
     app_state::AppState,
-    dto::sync_status::SyncStatusDto,
+    dto::sync_status::{ManualSyncTaskStatusDto, SyncStatusDto},
     error::{AppError, ErrorPayload},
     repository::{accounts::AccountsRepository, settings::SettingsRepository},
-    services::sync,
+    services::sync::{self, ManualSyncTaskState},
 };
 
 use serde::Serialize;
@@ -57,16 +57,37 @@ pub fn sync_get_status(state: State<'_, AppState>) -> Result<SyncStatusDto, Erro
 
 #[tauri::command]
 pub fn sync_start(state: State<'_, AppState>) -> Result<SyncStartResultDto, ErrorPayload> {
-    let connection = state.db.lock().map_err(|_| ErrorPayload {
-        message: "database mutex is poisoned".to_string(),
-    })?;
-
-    let result = sync::sync_recent_matches_batch(&connection, &state.sync_runtime_status, 12)
-        .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+    let result = sync::spawn_manual_recent_matches_batch(
+        state.db.clone(),
+        state.sync_runtime_status.clone(),
+        state.manual_sync_task_status.clone(),
+        12,
+    );
 
     Ok(SyncStartResultDto {
         success: result.success,
         error: result.error,
+    })
+}
+
+#[tauri::command]
+pub fn sync_get_manual_task_status(
+    state: State<'_, AppState>,
+) -> Result<ManualSyncTaskStatusDto, ErrorPayload> {
+    let status = sync::read_manual_task_status(&state.manual_sync_task_status)
+        .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+
+    Ok(ManualSyncTaskStatusDto {
+        state: match status.state {
+            ManualSyncTaskState::Idle => "idle".to_string(),
+            ManualSyncTaskState::Syncing => "syncing".to_string(),
+            ManualSyncTaskState::Success => "success".to_string(),
+            ManualSyncTaskState::Failed => "failed".to_string(),
+        },
+        started_at: status.started_at,
+        finished_at: status.finished_at,
+        error_message: status.error_message,
+        trigger: "manual",
     })
 }
 

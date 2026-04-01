@@ -39,6 +39,33 @@ pub struct SyncRuntimeStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManualSyncTaskState {
+    Idle,
+    Syncing,
+    Success,
+    Failed,
+}
+
+#[derive(Debug, Clone)]
+pub struct ManualSyncTaskStatus {
+    pub state: ManualSyncTaskState,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl Default for ManualSyncTaskStatus {
+    fn default() -> Self {
+        Self {
+            state: ManualSyncTaskState::Idle,
+            started_at: None,
+            finished_at: None,
+            error_message: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncResult {
@@ -76,6 +103,55 @@ pub fn read_status(sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>) -> SyncRuntimeS
         .lock()
         .map(|status| status.clone())
         .unwrap_or_default()
+}
+
+pub fn read_manual_task_status(
+    manual_status: &Arc<Mutex<ManualSyncTaskStatus>>,
+) -> Result<ManualSyncTaskStatus, AppError> {
+    manual_status
+        .lock()
+        .map(|status| status.clone())
+        .map_err(|_| AppError::Message("manual sync task status mutex is poisoned".to_string()))
+}
+
+pub fn spawn_manual_recent_matches_batch(
+    db: Arc<Mutex<Connection>>,
+    sync_runtime: Arc<Mutex<SyncRuntimeStatus>>,
+    manual_status: Arc<Mutex<ManualSyncTaskStatus>>,
+    limit: usize,
+) -> SyncResult {
+    let busy = begin_sync(&sync_runtime, "recent-batch");
+    if let Some(result) = busy {
+        return result;
+    }
+
+    if let Err(error) = set_manual_task_syncing(&manual_status) {
+        end_sync(&sync_runtime, Some(error.to_string()));
+        return SyncResult::failed(error.to_string());
+    }
+
+    thread::spawn(move || {
+        let result = run_manual_sync_job(&manual_status, || {
+            let connection = db
+                .lock()
+                .map_err(|_| AppError::Message("database mutex is poisoned".to_string()))?;
+            sync_recent_matches_batch_inner(&connection, limit)
+        });
+
+        if result.success {
+            end_sync(&sync_runtime, None);
+        } else {
+            end_sync(&sync_runtime, result.error.clone());
+        }
+    });
+
+    SyncResult {
+        success: true,
+        match_data: None,
+        players: None,
+        points: None,
+        error: None,
+    }
 }
 
 pub fn sync_recent_match(
@@ -776,6 +852,66 @@ fn set_runtime_error(sync_runtime: &Arc<Mutex<SyncRuntimeStatus>>, error: Option
     }
 }
 
+fn set_manual_task_syncing(
+    manual_status: &Arc<Mutex<ManualSyncTaskStatus>>,
+) -> Result<(), AppError> {
+    let mut status = manual_status
+        .lock()
+        .map_err(|_| AppError::Message("manual sync task status mutex is poisoned".to_string()))?;
+    status.state = ManualSyncTaskState::Syncing;
+    status.started_at = Some(chrono_like_iso_utc());
+    status.finished_at = None;
+    status.error_message = None;
+    Ok(())
+}
+
+fn finish_manual_task(
+    manual_status: &Arc<Mutex<ManualSyncTaskStatus>>,
+    state: ManualSyncTaskState,
+    error_message: Option<String>,
+) -> Result<(), AppError> {
+    let mut status = manual_status
+        .lock()
+        .map_err(|_| AppError::Message("manual sync task status mutex is poisoned".to_string()))?;
+    status.state = state;
+    status.finished_at = Some(chrono_like_iso_utc());
+    status.error_message = error_message;
+    Ok(())
+}
+
+fn run_manual_sync_job<F>(
+    manual_status: &Arc<Mutex<ManualSyncTaskStatus>>,
+    execute: F,
+) -> SyncResult
+where
+    F: FnOnce() -> Result<SyncResult, AppError>,
+{
+    if let Err(error) = set_manual_task_syncing(manual_status) {
+        return SyncResult::failed(error.to_string());
+    }
+
+    let result = match execute() {
+        Ok(result) => result,
+        Err(error) => SyncResult::failed(error.to_string()),
+    };
+
+    let finish_result = if result.success {
+        finish_manual_task(manual_status, ManualSyncTaskState::Success, None)
+    } else {
+        finish_manual_task(
+            manual_status,
+            ManualSyncTaskState::Failed,
+            result.error.clone(),
+        )
+    };
+
+    if let Err(error) = finish_result {
+        return SyncResult::failed(error.to_string());
+    }
+
+    result
+}
+
 fn mark_match_failed(connection: &Connection, match_id: &str) {
     if let Ok(active_account) = AccountsRepository::new(connection).require_active() {
         let _ =
@@ -840,4 +976,78 @@ fn chrono_like_iso_utc() -> String {
     let now = std::time::SystemTime::now();
     let datetime: chrono::DateTime<chrono::Utc> = now.into();
     datetime.to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_manual_sync_job_marks_success_state() {
+        let manual_status = Arc::new(Mutex::new(ManualSyncTaskStatus::default()));
+
+        let result = run_manual_sync_job(&manual_status, || {
+            Ok(SyncResult {
+                success: true,
+                match_data: None,
+                players: None,
+                points: None,
+                error: None,
+            })
+        });
+
+        assert!(result.success);
+        let latest = read_manual_task_status(&manual_status).expect("read manual status");
+        assert_eq!(latest.state, ManualSyncTaskState::Success);
+        assert!(latest.started_at.is_some());
+        assert!(latest.finished_at.is_some());
+        assert_eq!(latest.error_message, None);
+    }
+
+    #[test]
+    fn run_manual_sync_job_marks_failed_state() {
+        let manual_status = Arc::new(Mutex::new(ManualSyncTaskStatus::default()));
+
+        let result = run_manual_sync_job(&manual_status, || Ok(SyncResult::failed("boom")));
+
+        assert!(!result.success);
+        let latest = read_manual_task_status(&manual_status).expect("read manual status");
+        assert_eq!(latest.state, ManualSyncTaskState::Failed);
+        assert_eq!(latest.error_message.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn spawn_manual_recent_matches_batch_sets_syncing_before_thread_work() {
+        let db = Arc::new(Mutex::new(
+            Connection::open_in_memory().expect("open in-memory db"),
+        ));
+        let db_guard = db.lock().expect("lock db");
+        let sync_runtime = Arc::new(Mutex::new(SyncRuntimeStatus::default()));
+        let manual_status = Arc::new(Mutex::new(ManualSyncTaskStatus::default()));
+
+        let result =
+            spawn_manual_recent_matches_batch(db.clone(), sync_runtime, manual_status.clone(), 12);
+
+        assert!(result.success);
+        let latest = read_manual_task_status(&manual_status).expect("read manual status");
+        assert_eq!(latest.state, ManualSyncTaskState::Syncing);
+
+        drop(db_guard);
+    }
+
+    #[test]
+    fn read_manual_task_status_returns_error_when_mutex_is_poisoned() {
+        let manual_status = Arc::new(Mutex::new(ManualSyncTaskStatus::default()));
+        let manual_status_for_panic = manual_status.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = manual_status_for_panic.lock().expect("lock manual status");
+            panic!("poison manual status mutex");
+        })
+        .join();
+
+        let error = read_manual_task_status(&manual_status).expect_err("expects poisoned mutex");
+        assert!(error
+            .to_string()
+            .contains("manual sync task status mutex is poisoned"));
+    }
 }

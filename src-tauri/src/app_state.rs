@@ -12,7 +12,7 @@ use crate::{
         accounts::AccountsRepository, points::PointRecordsRepository, settings::SettingsRepository,
     },
     runtime::game_state::GameProcessRuntime,
-    services::sync::SyncRuntimeStatus,
+    services::sync::{ManualSyncTaskStatus, SyncRuntimeStatus},
 };
 
 const POINTS_IDENTITY_KEY_REPAIR_FLAG: &str = "points_identity_key_repaired_v6";
@@ -23,6 +23,7 @@ pub struct AppState {
     pub app_version: String,
     pub game_process_runtime: Arc<Mutex<GameProcessRuntime>>,
     pub sync_runtime_status: Arc<Mutex<SyncRuntimeStatus>>,
+    pub manual_sync_task_status: Arc<Mutex<ManualSyncTaskStatus>>,
 }
 
 impl AppState {
@@ -37,6 +38,7 @@ impl AppState {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             game_process_runtime: Arc::new(Mutex::new(GameProcessRuntime::default())),
             sync_runtime_status: Arc::new(Mutex::new(SyncRuntimeStatus::default())),
+            manual_sync_task_status: Arc::new(Mutex::new(ManualSyncTaskStatus::default())),
         })
     }
 }
