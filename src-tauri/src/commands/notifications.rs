@@ -7,7 +7,7 @@ use crate::{
     repository::notification_tasks::NotificationFailedTaskDto,
     services::{
         napcat_runtime::{self, NapCatWebUiInfoDto, NotificationPageStatusDto},
-        notifications::{self, SendSelectedResultDto},
+        notifications::{self, NotificationTemplateConfigDto, SendSelectedResultDto},
     },
 };
 
@@ -21,6 +21,17 @@ pub struct SendSelectedNotificationsInput {
 pub struct DeleteFailedNotificationInput {
     #[serde(rename = "taskId")]
     task_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveNotificationGroupIdInput {
+    #[serde(rename = "groupId")]
+    group_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveNotificationTemplateConfigInput {
+    config: NotificationTemplateConfigDto,
 }
 
 #[tauri::command]
@@ -138,5 +149,43 @@ pub fn notifications_send_test(state: State<'_, AppState>) -> Result<(), ErrorPa
     })?;
 
     notifications::send_test_notification(&connection)
+        .map_err(|error: AppError| -> ErrorPayload { error.into() })
+}
+
+#[tauri::command]
+pub fn notifications_save_group_id(
+    state: State<'_, AppState>,
+    input: SaveNotificationGroupIdInput,
+) -> Result<NotificationPageStatusDto, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+
+    napcat_runtime::save_group_id_and_get_status(&connection, &input.group_id)
+        .map_err(|error: AppError| -> ErrorPayload { error.into() })
+}
+
+#[tauri::command]
+pub fn notifications_get_template_config(
+    state: State<'_, AppState>,
+) -> Result<NotificationTemplateConfigDto, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+
+    notifications::get_template_config(&connection)
+        .map_err(|error: AppError| -> ErrorPayload { error.into() })
+}
+
+#[tauri::command]
+pub fn notifications_save_template_config(
+    state: State<'_, AppState>,
+    input: SaveNotificationTemplateConfigInput,
+) -> Result<NotificationTemplateConfigDto, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+
+    notifications::save_template_config(&connection, &input.config)
         .map_err(|error: AppError| -> ErrorPayload { error.into() })
 }

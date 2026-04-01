@@ -256,6 +256,20 @@ impl<'a> NotificationTasksRepository<'a> {
         }
     }
 
+    pub fn get_status_by_id(&self, task_id: i64) -> Result<Option<String>, AppError> {
+        let result = self.connection.query_row(
+            "SELECT status FROM match_notification_tasks WHERE account_id = ?1 AND id = ?2 LIMIT 1",
+            params![self.account_id, task_id],
+            |row| row.get(0),
+        );
+
+        match result {
+            Ok(status) => Ok(Some(status)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NotificationTaskDto> {
         Ok(NotificationTaskDto {
             id: row.get(0)?,
