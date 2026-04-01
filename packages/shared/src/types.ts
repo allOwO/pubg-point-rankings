@@ -11,10 +11,25 @@ export type MatchStatus = 'detected' | 'syncing' | 'ready' | 'failed';
 
 export type RoundingMode = 'floor' | 'round' | 'ceil';
 
+export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
+
 export interface AppSetting {
   key: string;
   value: string;
   updatedAt: Date;
+}
+
+export interface LogEntry {
+  timestamp: Date;
+  level: LogLevel;
+  source: string;
+  message: string;
+}
+
+export interface LogStatus {
+  enabled: boolean;
+  directory: string;
+  logFilePath: string | null;
 }
 
 export interface Account {
