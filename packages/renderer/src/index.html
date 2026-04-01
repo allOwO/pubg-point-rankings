@@ -371,12 +371,23 @@
          <!-- Notifications View -->
          <section id="view-notifications" class="view">
            <header class="view-header">
-             <h1 data-i18n="notifications.title">Message Notifications</h1>
-             <p class="view-subtitle" data-i18n="notifications.subtitle">Manage NapCat runtime, QQ login, group delivery, and failed sends.</p>
+             <div class="view-header-content">
+               <div>
+                 <h1 data-i18n="notifications.title">Message Notifications</h1>
+                 <p class="view-subtitle" data-i18n="notifications.subtitle">Manage NapCat runtime, QQ login, group delivery, and failed sends.</p>
+               </div>
+               <div class="notification-header-status" id="notification-header-status">
+                 <span class="notification-header-status-label" data-i18n="notifications.statusLabel">Status</span>
+                 <span class="notification-header-ready-badge" id="notification-header-ready-badge">
+                   <span class="ready-dot"></span>
+                   <span class="ready-text" data-i18n="notifications.state.ready">Ready</span>
+                 </span>
+                 <span class="notification-header-runtime" id="notification-header-runtime"></span>
+               </div>
+             </div>
            </header>
-           <div class="view-content">
-             <div class="card card-wide" id="notifications-status-card"></div>
-             <div class="card card-wide" id="notifications-runtime-card"></div>
+            <div class="view-content">
+              <div class="card card-wide" id="notifications-runtime-card"></div>
              <div class="card card-wide" id="notifications-login-card"></div>
              <div class="card card-wide" id="notifications-config-card"></div>
              <div class="card card-wide" id="notifications-failed-card"></div>

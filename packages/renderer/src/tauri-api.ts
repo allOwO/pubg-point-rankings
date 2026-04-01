@@ -33,6 +33,7 @@ import type {
   NotificationEnvStatus,
   NotificationFailedTask,
   NotificationPageStatus,
+  NotificationTemplateConfig,
   UnsettledBattleSummary,
   UnsettledPlayerSummary,
 } from '@pubg-point-rankings/shared';
@@ -146,6 +147,8 @@ export interface AppAPIClient {
     restartRuntime(): Promise<NotificationPageStatus>;
     sendTest(): Promise<void>;
     saveGroupId(groupId: string): Promise<NotificationPageStatus>;
+    getTemplateConfig(): Promise<NotificationTemplateConfig>;
+    saveTemplateConfig(config: NotificationTemplateConfig): Promise<NotificationTemplateConfig>;
   };
   sync: {
     getStatus(): Promise<SyncStatus>;
@@ -833,10 +836,15 @@ export function getAPI(): AppAPIClient {
         await invokeRequired('notifications_send_test');
       },
       saveGroupId: async (groupId) => {
-        await invokeRequired('settings_set', { key: 'notification_group_id', value: groupId });
-        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_get_status');
+        const dto = await invokeRequired<NotificationPageStatusDto>('notifications_save_group_id', {
+          input: { groupId },
+        });
         return hydrateNotificationPageStatus(dto);
       },
+      getTemplateConfig: async () => invokeRequired<NotificationTemplateConfig>('notifications_get_template_config'),
+      saveTemplateConfig: async (config) => invokeRequired<NotificationTemplateConfig>('notifications_save_template_config', {
+        input: { config },
+      }),
     },
     sync: {
       getStatus: async () => hydrateSyncStatus(await invokeOptional<SyncStatusDto>('sync_get_status', undefined, {

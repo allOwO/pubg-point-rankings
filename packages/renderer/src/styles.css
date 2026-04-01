@@ -3126,6 +3126,68 @@ body {
    Notifications View
    ================================ */
 
+/* Header Status (replaces the old status card) */
+.notification-header-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.notification-header-status-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.notification-header-ready-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--color-success);
+  border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+.notification-header-ready-badge .ready-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+
+.notification-header-ready-badge.not-ready {
+  background: rgba(234, 179, 8, 0.12);
+  color: var(--color-warning);
+  border-color: rgba(234, 179, 8, 0.28);
+}
+
+.notification-header-ready-badge.not-ready .ready-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 8px var(--color-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.notification-header-ready-badge.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-error);
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.notification-header-ready-badge.error .ready-dot {
+  background: var(--color-error);
+  box-shadow: 0 0 8px var(--color-error);
+}
+
+.notification-header-runtime {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
 .notification-status-pill {
   display: inline-flex;
   align-items: center;
@@ -3283,6 +3345,67 @@ body {
   color: var(--color-text-secondary);
 }
 
+.notification-current-group {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.template-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.template-line-card,
+.notification-template-preview {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-elevated);
+  padding: var(--space-4);
+}
+
+.template-line-header-row,
+.template-line-order-actions,
+.template-line-fields {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.template-line-header-row {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.template-line-fields {
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+
+.template-line-fields label {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.template-line-example {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.notification-template-preview h4 {
+  margin: 0 0 var(--space-3);
+}
+
+.notification-template-preview-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--color-text-primary);
+}
+
 @media (max-width: 768px) {
   .notification-webui-frame {
     min-height: 360px;
@@ -3290,7 +3413,9 @@ body {
 
   .notification-failed-toolbar,
   .notification-runtime-actions,
-  .form-actions {
+  .form-actions,
+  .template-line-header-row,
+  .template-line-fields {
     flex-direction: column;
   }
 }

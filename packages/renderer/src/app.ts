@@ -420,6 +420,8 @@ async function loadNotifications() {
         restartRuntime: () => api.notifications.restartRuntime(),
         sendTest: () => api.notifications.sendTest(),
         saveGroupId: (groupId: string) => api.notifications.saveGroupId(groupId),
+        getTemplateConfig: () => api.notifications.getTemplateConfig(),
+        saveTemplateConfig: (config) => api.notifications.saveTemplateConfig(config),
         translate: (key: string) => t(key as TranslationKey),
       });
     }
