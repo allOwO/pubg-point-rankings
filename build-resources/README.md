@@ -1,6 +1,8 @@
 # Build Resources
 
-This directory contains resources used by electron-builder during the packaging process.
+**LEGACY:** This directory was used by electron-builder during early development and is no longer used by the current Tauri‑based build process.
+
+For current Tauri build resources, see `src-tauri/icons/`.
 
 ## Icons
 
