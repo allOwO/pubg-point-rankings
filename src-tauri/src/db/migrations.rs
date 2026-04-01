@@ -806,6 +806,19 @@ fn migrate_v10_to_v11(connection: &Connection) -> Result<(), AppError> {
     Ok(())
 }
 
+fn migrate_v11_to_v12(connection: &Connection) -> Result<(), AppError> {
+    connection.execute(
+        "INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('logging_enabled', '1', CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    connection.execute(
+        "INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES ('logging_directory', '', CURRENT_TIMESTAMP)",
+        [],
+    )?;
+
+    Ok(())
+}
+
 pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
     let version = current_version(connection)?;
     let mut effective_version = version;
@@ -855,6 +868,10 @@ pub fn bootstrap_database(connection: &Connection) -> Result<(), AppError> {
     if effective_version < 11 {
         migrate_v10_to_v11(connection)?;
         set_version(connection, 11)?;
+    }
+    if effective_version < 12 {
+        migrate_v11_to_v12(connection)?;
+        set_version(connection, 12)?;
     }
 
     connection.execute_batch(DEFAULT_DATA_SQL)?;
@@ -1163,7 +1180,7 @@ mod tests {
             )
             .expect("select weapon name");
 
-        assert_eq!(schema_version, 11);
+        assert_eq!(schema_version, 12);
         assert_eq!(damage_causer_name, "Mk12");
         assert_eq!(kill_damage_causer_name, "UAZ (open top)");
         assert_eq!(weapon_name, "Mk12");
@@ -1201,6 +1218,31 @@ mod tests {
             .expect("select schema version");
 
         assert_eq!(knock_events_table_exists, 1);
-        assert_eq!(schema_version, 11);
+        assert_eq!(schema_version, 12);
+    }
+
+    #[test]
+    fn bootstrap_adds_default_logging_settings() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+
+        bootstrap_database(&connection).expect("bootstrap new db");
+
+        let logging_enabled: String = connection
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = 'logging_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select logging enabled");
+        let logging_directory: String = connection
+            .query_row(
+                "SELECT value FROM app_settings WHERE key = 'logging_directory'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("select logging directory");
+
+        assert_eq!(logging_enabled, "1");
+        assert_eq!(logging_directory, "");
     }
 }

@@ -1,3 +1,4 @@
+import type { LogStatus } from '@pubg-point-rankings/shared';
 import { getAPI, getRuntimeHost, type Account, type MatchDetail, type PointHistoryListItem, type UnsettledBattleSummary } from './tauri-api';
 import {
   APP_LANGUAGE_SETTING_KEY,
@@ -9,6 +10,7 @@ import {
 } from './i18n';
 import { formatActivitySentenceParts } from './match-log-activity';
 import { getMatchListBattleDelta, getMatchListPlacement, getNonZeroMatchBattleDeltas } from './matches-list';
+import { createLogsPageController, type LogsPageController } from './logs-page';
 import { createNotificationsPageController, type NotificationsPageController } from './notifications-page';
 
 /**
@@ -395,11 +397,30 @@ async function loadSettings() {
       if (apiKeyInput) apiKeyInput.value = '';
     }
 
-    // Load polling settings as part of settings
-    await loadPollingSettings();
+    await Promise.all([loadPollingSettings(), loadLogSettings()]);
   } catch (error) {
     console.error('Failed to load settings:', error);
     showToast(t('toast.accountLoadFailed'), 'error');
+  }
+}
+
+async function loadLogSettings() {
+  try {
+    const api = getAPI();
+    const status = await api.logs.getStatus();
+    state.loggingStatus = status;
+
+    const enabledInput = document.getElementById('setting-logging-enabled') as HTMLInputElement | null;
+    const directoryInput = document.getElementById('setting-logging-directory') as HTMLInputElement | null;
+
+    if (enabledInput) {
+      enabledInput.checked = status.enabled;
+    }
+    if (directoryInput) {
+      directoryInput.value = status.directory;
+    }
+  } catch (error) {
+    console.error('Failed to load log settings:', error);
   }
 }
 
@@ -431,6 +452,29 @@ async function loadNotifications() {
   } catch (error) {
     console.error('Failed to load notifications:', error);
     showToast(t('toast.notificationsLoadFailed'), 'error');
+  }
+}
+
+async function loadLogs() {
+  try {
+    const api = getAPI();
+
+    if (!state.logsController) {
+      state.logsController = createLogsPageController({
+        getStatus: () => api.logs.getStatus(),
+        getRecent: (limit) => api.logs.getRecent(limit),
+        openDirectory: () => api.logs.openDirectory(),
+        translate: (key: string) => t(key as TranslationKey),
+        formatDateTime,
+        showToast,
+      });
+    }
+
+    await state.logsController.load();
+    applyStaticTranslations();
+  } catch (error) {
+    console.error('Failed to load logs:', error);
+    showToast(t('toast.logsLoadFailed'), 'error');
   }
 }
 
@@ -590,9 +634,11 @@ export class AppState {
   appStatus: AppStatus | null = null;
   gameProcessStatus: GameProcessStatus | null = null;
   pollingSettings: PollingSettings = { ...DEFAULT_POLLING_SETTINGS };
+  loggingStatus: LogStatus | null = null;
   locale: Locale = DEFAULT_LOCALE;
   hasConfiguredApiKey = false;
   isLoading = false;
+  logsController: LogsPageController | null = null;
   notificationsController: NotificationsPageController | null = null;
 }
 
@@ -720,6 +766,10 @@ async function refreshLocalizedContent() {
   renderRulesList();
   renderMatchesList();
   renderPointRecordsList();
+
+  if (getActiveViewId() === 'logs') {
+    await loadLogs();
+  }
 
   if (getActiveViewId() === 'settings') {
     await loadSettings();
@@ -1362,9 +1412,12 @@ export function navigateTo(viewId: string) {
      case 'settings':
        loadSettings();
        break;
-     case 'notifications':
-       loadNotifications();
-       break;
+      case 'logs':
+        loadLogs();
+        break;
+      case 'notifications':
+        loadNotifications();
+        break;
     }
 }
 
@@ -2514,6 +2567,53 @@ async function handlePollingSettingsSubmit(e: Event) {
   }
 }
 
+async function handleLogSettingsSubmit(e: Event) {
+  e.preventDefault();
+
+  const form = e.target as HTMLFormElement;
+  const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+  const enabledInput = document.getElementById('setting-logging-enabled') as HTMLInputElement | null;
+  const directoryInput = document.getElementById('setting-logging-directory') as HTMLInputElement | null;
+
+  if (!enabledInput || !directoryInput) {
+    showToast(t('toast.logsSettingsUnavailable'), 'error');
+    return;
+  }
+
+  try {
+    if (submitBtn) submitBtn.disabled = true;
+
+    const api = getAPI();
+    const status = await api.logs.updateSettings({
+      enabled: enabledInput.checked,
+      directory: directoryInput.value,
+    });
+
+    state.loggingStatus = status;
+    directoryInput.value = status.directory;
+    showToast(t('toast.logsSettingsSaved'));
+
+    if (getActiveViewId() === 'logs') {
+      await loadLogs();
+    }
+  } catch (error) {
+    console.error('Failed to save log settings:', error);
+    showToast(t('toast.logsSettingsFailed'), 'error');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function handleOpenLogDirectory() {
+  try {
+    const api = getAPI();
+    await api.logs.openDirectory();
+  } catch (error) {
+    console.error('Failed to open log directory:', error);
+    showToast(t('toast.logsOpenDirectoryFailed'), 'error');
+  }
+}
+
 async function handleImmediateRecentMatchCheck() {
   const syncNowButton = document.getElementById('btn-sync-now') as HTMLButtonElement | null;
   if (state.syncStatus?.isSyncing) return;
@@ -3148,13 +3248,17 @@ document.getElementById('manual-friend-form')?.addEventListener('submit', handle
 document.getElementById('rule-form')?.addEventListener('submit', handleRuleSubmit);
 document.getElementById('sync-form')?.addEventListener('submit', handleSyncSubmit);
 document.getElementById('polling-settings-form')?.addEventListener('submit', handlePollingSettingsSubmit);
+document.getElementById('logging-settings-form')?.addEventListener('submit', handleLogSettingsSubmit);
 document.getElementById('language-settings-form')?.addEventListener('submit', handleLanguageSubmit);
 document.getElementById('account-settings-form')?.addEventListener('submit', handleAccountSettingsSubmit);
 document.getElementById('api-key-settings-form')?.addEventListener('submit', handleApiKeySettingsSubmit);
 document.getElementById('point-note-form')?.addEventListener('submit', handlePointNoteSubmit);
-     document.getElementById('btn-sync-friends-manual')?.addEventListener('click', () => {
-       void openRecentTeammatesModal();
+     document.getElementById('btn-open-log-directory-settings')?.addEventListener('click', () => {
+       void handleOpenLogDirectory();
      });
+      document.getElementById('btn-sync-friends-manual')?.addEventListener('click', () => {
+        void openRecentTeammatesModal();
+      });
      document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
     
   } catch (error) {

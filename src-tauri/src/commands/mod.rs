@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod app;
+pub mod logs;
 pub mod matches;
 pub mod notifications;
 pub mod points;
