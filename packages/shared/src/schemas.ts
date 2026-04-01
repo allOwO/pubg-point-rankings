@@ -25,6 +25,8 @@ export const ManualSyncTaskStatusSchema = z.object({
   trigger: z.literal('manual'),
 });
 
+export const LogLevelSchema = z.enum(['ERROR', 'WARN', 'INFO', 'DEBUG']);
+
 export const NotificationEnvStatusSchema = z.enum([
   'unsupported_os',
   'missing_runtime',
@@ -60,6 +62,24 @@ export const AppSettingSchema = z.object({
   key: z.string(),
   value: z.string(),
   updatedAt: z.date(),
+});
+
+export const LogEntrySchema = z.object({
+  timestamp: z.date(),
+  level: LogLevelSchema,
+  source: z.string(),
+  message: z.string(),
+});
+
+export const LogStatusSchema = z.object({
+  enabled: z.boolean(),
+  directory: z.string(),
+  logFilePath: z.string().nullable(),
+});
+
+export const UpdateLogSettingsInputSchema = z.object({
+  enabled: z.boolean(),
+  directory: z.string(),
 });
 
 export const AccountSchema = z.object({
@@ -463,6 +483,7 @@ export type CreatePointRuleInput = z.infer<typeof CreatePointRuleInputSchema>;
 export type UpdatePointRuleInput = z.infer<typeof UpdatePointRuleInputSchema>;
 export type CreateMatchInput = z.infer<typeof CreateMatchInputSchema>;
 export type UpdateSettingsInput = z.infer<typeof UpdateSettingsInputSchema>;
+export type UpdateLogSettingsInput = z.infer<typeof UpdateLogSettingsInputSchema>;
 export type UpdatePointMatchNoteInput = z.infer<typeof UpdatePointMatchNoteInputSchema>;
 export type SettlePointMatchesInput = z.infer<typeof SettlePointMatchesInputSchema>;
 export type RecalculateUnsettledPointsInput = z.infer<typeof RecalculateUnsettledPointsInputSchema>;

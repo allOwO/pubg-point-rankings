@@ -6,6 +6,8 @@ import type {
   CreatePointRuleInput,
   CreateTeammateInput,
   ManualSyncTaskStatus,
+  LogEntry,
+  LogStatus,
   Match,
   MatchDetail,
   MatchDamageEvent,
@@ -20,6 +22,7 @@ import type {
   SettlePointMatchesInput,
   SyncStatus,
   Teammate,
+  UpdateLogSettingsInput,
   UpdatePointMatchNoteInput,
   UpdatePointRuleInput,
   UpdateTeammateInput,
@@ -86,7 +89,13 @@ export interface AppAPIClient {
     getAll(): Promise<AppSetting[]>;
     set(key: string, value: string): Promise<void>;
   };
-   accounts: {
+  logs: {
+    getStatus(): Promise<LogStatus>;
+    getRecent(limit?: number): Promise<LogEntry[]>;
+    updateSettings(input: UpdateLogSettingsInput): Promise<LogStatus>;
+    openDirectory(): Promise<void>;
+  };
+    accounts: {
      getAll(): Promise<Account[]>;
      getActive(): Promise<Account | null>;
      create(input: {
@@ -167,6 +176,19 @@ interface DateSettingDto {
   key: string;
   value: string;
   updatedAt: string;
+}
+
+interface LogEntryDto {
+  timestamp: string;
+  level: LogEntry['level'];
+  source: string;
+  message: string;
+}
+
+interface LogStatusDto {
+  enabled: boolean;
+  directory: string;
+  logFilePath: string | null;
 }
 
 interface AccountDto {
@@ -489,6 +511,17 @@ function hydrateSetting(dto: DateSettingDto): AppSetting {
   return { ...dto, updatedAt: new Date(dto.updatedAt) };
 }
 
+function hydrateLogEntry(dto: LogEntryDto): LogEntry {
+  return {
+    ...dto,
+    timestamp: new Date(dto.timestamp),
+  };
+}
+
+function hydrateLogStatus(dto: LogStatusDto): LogStatus {
+  return dto;
+}
+
 function hydrateAccount(dto: AccountDto): Account {
   return {
     ...dto,
@@ -730,6 +763,16 @@ export function getAPI(): AppAPIClient {
       },
       set: async (key, value) => {
         await invokeRequired('settings_set', { key, value });
+      },
+    },
+    logs: {
+      getStatus: async () => hydrateLogStatus(await invokeRequired<LogStatusDto>('logs_get_status')),
+      getRecent: async (limit) => (
+        await invokeOptional<LogEntryDto[]>('logs_get_recent', { limit }, [])
+      ).map(hydrateLogEntry),
+      updateSettings: async (input) => hydrateLogStatus(await invokeRequired<LogStatusDto>('logs_update_settings', { input })),
+      openDirectory: async () => {
+        await invokeRequired('logs_open_directory');
       },
     },
     accounts: {

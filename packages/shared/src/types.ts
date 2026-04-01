@@ -23,10 +23,25 @@ export interface ManualSyncTaskStatus {
   trigger: 'manual';
 }
 
+export type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
+
 export interface AppSetting {
   key: string;
   value: string;
   updatedAt: Date;
+}
+
+export interface LogEntry {
+  timestamp: Date;
+  level: LogLevel;
+  source: string;
+  message: string;
+}
+
+export interface LogStatus {
+  enabled: boolean;
+  directory: string;
+  logFilePath: string | null;
 }
 
 export interface Account {

@@ -439,6 +439,19 @@ pub fn get_notification_status(
     })
 }
 
+pub fn save_group_id_and_get_status(
+    connection: &Connection,
+    group_id: &str,
+) -> Result<NotificationPageStatusDto, AppError> {
+    let account = AccountsRepository::new(connection).require_active()?;
+    SettingsRepository::new(connection).set_account(
+        account.id,
+        NOTIFICATION_GROUP_ID_KEY,
+        group_id,
+    )?;
+    get_notification_status(connection)
+}
+
 pub fn install_runtime_and_get_status(
     connection: &Connection,
 ) -> Result<NotificationPageStatusDto, AppError> {
@@ -623,9 +636,13 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use rusqlite::Connection;
+
+    use crate::{db::migrations::bootstrap_database, repository::settings::SettingsRepository};
+
     use super::{
         coerce_loopback_host, evaluate_env_status, probe_external_environment, resolve_runtime_dir,
-        NapCatRuntimeState,
+        save_group_id_and_get_status, NapCatRuntimeState, NOTIFICATION_RUNTIME_INSTALL_DIR_KEY,
     };
 
     fn make_temp_dir(prefix: &str) -> PathBuf {
@@ -708,5 +725,51 @@ mod tests {
             Some("http://127.0.0.1:3001".to_string())
         );
         let _ = fs::remove_dir_all(info.runtime_dir);
+    }
+
+    #[test]
+    fn save_group_id_persists_account_setting_and_returns_updated_status() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        bootstrap_database(&connection).expect("bootstrap schema");
+
+        connection
+            .execute(
+                "UPDATE accounts
+                 SET account_name = 'steam', self_player_name = 'SelfPlayer', self_platform = 'steam', is_active = 1
+                 WHERE id = 1",
+                [],
+            )
+            .expect("ensure active account");
+
+        let runtime_dir = make_temp_dir("napcat-save-group-id");
+        fs::write(
+            runtime_dir.join("webui.json"),
+            r#"{"host":"127.0.0.1","port":6099,"token":"abc"}"#,
+        )
+        .expect("write webui config");
+
+        SettingsRepository::new(&connection)
+            .set(
+                NOTIFICATION_RUNTIME_INSTALL_DIR_KEY,
+                runtime_dir.to_string_lossy().as_ref(),
+            )
+            .expect("store runtime dir");
+
+        let status = save_group_id_and_get_status(&connection, "123456")
+            .expect("save group id should succeed");
+
+        assert_eq!(status.group_id, "123456");
+        assert_eq!(status.env_status, "runtime_not_running");
+
+        let saved_group_id: String = connection
+            .query_row(
+                "SELECT value FROM account_settings WHERE account_id = 1 AND key = 'notification_group_id'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("load saved group id");
+        assert_eq!(saved_group_id, "123456");
+
+        let _ = fs::remove_dir_all(runtime_dir);
     }
 }

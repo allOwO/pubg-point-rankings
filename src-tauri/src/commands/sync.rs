@@ -5,7 +5,10 @@ use crate::{
     dto::sync_status::{ManualSyncTaskStatusDto, SyncStatusDto},
     error::{AppError, ErrorPayload},
     repository::{accounts::AccountsRepository, settings::SettingsRepository},
-    services::sync::{self, ManualSyncTaskState},
+    services::{
+        logs::{self, LogLevel},
+        sync::{self, ManualSyncTaskState},
+    },
 };
 
 use serde::Serialize;
@@ -57,6 +60,17 @@ pub fn sync_get_status(state: State<'_, AppState>) -> Result<SyncStatusDto, Erro
 
 #[tauri::command]
 pub fn sync_start(state: State<'_, AppState>) -> Result<SyncStartResultDto, ErrorPayload> {
+    let connection = state.db.lock().map_err(|_| ErrorPayload {
+        message: "database mutex is poisoned".to_string(),
+    })?;
+
+    let _ = logs::write_log_record(
+        &connection,
+        LogLevel::Info,
+        "sync",
+        "manual recent-match sync requested",
+    );
+
     let result = sync::spawn_manual_recent_matches_batch(
         state.db.clone(),
         state.sync_runtime_status.clone(),
@@ -101,13 +115,41 @@ pub fn sync_start_match(
         message: "database mutex is poisoned".to_string(),
     })?;
 
-    let result = sync::sync_match(
+    let _ = logs::write_log_record(
+        &connection,
+        LogLevel::Info,
+        "sync",
+        &format!("manual match sync requested for {match_id}"),
+    );
+
+    let result = match sync::sync_match(
         &connection,
         &state.sync_runtime_status,
         &match_id,
         platform.as_deref(),
-    )
-    .map_err(|error: AppError| -> ErrorPayload { error.into() })?;
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = logs::write_log_record(
+                &connection,
+                LogLevel::Error,
+                "sync",
+                &format!("manual match sync failed for {match_id}: {error}"),
+            );
+            return Err(error.into());
+        }
+    };
+
+    let level = if result.success {
+        LogLevel::Info
+    } else {
+        LogLevel::Error
+    };
+    let summary = result
+        .error
+        .clone()
+        .unwrap_or_else(|| format!("manual match sync completed for {match_id}"));
+    let _ = logs::write_log_record(&connection, level, "sync", &summary);
 
     Ok(SyncStartMatchResultDto {
         success: result.success,

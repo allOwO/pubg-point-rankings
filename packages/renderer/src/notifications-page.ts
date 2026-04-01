@@ -28,9 +28,159 @@ export function getManualSyncStatusTone(
   return 'error';
 }
 
+export function shouldShowNotificationLogin(
+  status: Pick<NotificationPageStatus, 'envStatus' | 'webUiUrl'> | null,
+): boolean {
+  return status?.envStatus === 'not_logged_in' && !!status.webUiUrl;
+}
+
+export function getCurrentNotificationGroupId(
+  status: Pick<NotificationPageStatus, 'groupId'> | null,
+): string | null {
+  const groupId = status?.groupId.trim();
+  return groupId ? groupId : null;
+}
+
+type NotificationTemplateLineId = NotificationTemplateConfig['order'][number];
+type EditorTemplateLineId = 'header' | 'teammate' | 'battle';
+
+interface EditorTemplateLineConfig {
+  id: EditorTemplateLineId;
+  prefix: string;
+  suffix: string;
+}
+
+interface EditorTemplateConfig {
+  order: EditorTemplateLineId[];
+  lines: Record<EditorTemplateLineId, EditorTemplateLineConfig>;
+}
+
+const TEMPLATE_PREVIEW_CONTENT: Record<NotificationTemplateLineId, string> = {
+  header: '03-30 06:47｜第4名',
+  player1: 'allOwO：1杀 / 143伤 / 0救 / 317分',
+  player2: '队友A：0杀 / 88伤 / 1救 / 184分',
+  player3: '队友B：2杀 / 201伤 / 0救 / 402分',
+  player4: '队友C：0杀 / 0伤 / 0救 / 0分',
+  battle: '张三 → 李四 12 分',
+};
+
+const TEMPLATE_LINE_LABEL_KEYS: Record<NotificationTemplateLineId, string> = {
+  header: 'notifications.templateLine.header',
+  player1: 'notifications.templateLine.player1',
+  player2: 'notifications.templateLine.player2',
+  player3: 'notifications.templateLine.player3',
+  player4: 'notifications.templateLine.player4',
+  battle: 'notifications.templateLine.battle',
+};
+
+const EDITOR_TEMPLATE_LINE_LABEL_KEYS: Record<EditorTemplateLineId, string> = {
+  header: 'notifications.templateLine.header',
+  teammate: 'notifications.templateLine.teammate',
+  battle: 'notifications.templateLine.battle',
+};
+
+const TEAMMATE_LINE_IDS: NotificationTemplateLineId[] = ['player1', 'player2', 'player3', 'player4'];
+
+export function buildTemplatePreviewLines(config: NotificationTemplateConfig): string[] {
+  return renderConfiguredTemplateLines(config, TEMPLATE_PREVIEW_CONTENT);
+}
+
+export function renderConfiguredTemplateLines(
+  config: NotificationTemplateConfig,
+  content: Record<NotificationTemplateLineId, string>,
+): string[] {
+  return config.order.flatMap((lineId) => {
+    const value = content[lineId]?.trim() ?? '';
+    if (!value || value === '-') {
+      return [];
+    }
+
+    const line = config.lines[lineId];
+    return [`${line.prefix}${value}${line.suffix}`];
+  });
+}
+
+export function collapseTemplateConfigForEditor(config: NotificationTemplateConfig): EditorTemplateConfig {
+  const order: EditorTemplateLineId[] = [];
+  for (const lineId of config.order) {
+    if (TEAMMATE_LINE_IDS.includes(lineId)) {
+      if (!order.includes('teammate')) {
+        order.push('teammate');
+      }
+      continue;
+    }
+
+    order.push(lineId as EditorTemplateLineId);
+  }
+
+  return {
+    order,
+    lines: {
+      header: { ...config.lines.header, id: 'header' },
+      teammate: {
+        id: 'teammate',
+        prefix: config.lines.player1.prefix,
+        suffix: config.lines.player1.suffix,
+      },
+      battle: { ...config.lines.battle, id: 'battle' },
+    },
+  };
+}
+
+export function expandEditorTemplateConfig(config: EditorTemplateConfig): NotificationTemplateConfig {
+  const order: NotificationTemplateLineId[] = [];
+  for (const lineId of config.order) {
+    if (lineId === 'teammate') {
+      order.push('player1', 'player2', 'player3', 'player4');
+      continue;
+    }
+    order.push(lineId);
+  }
+
+  return {
+    order,
+    lines: {
+      header: { id: 'header', prefix: config.lines.header.prefix, suffix: config.lines.header.suffix },
+      player1: { id: 'player1', prefix: config.lines.teammate.prefix, suffix: config.lines.teammate.suffix },
+      player2: { id: 'player2', prefix: config.lines.teammate.prefix, suffix: config.lines.teammate.suffix },
+      player3: { id: 'player3', prefix: config.lines.teammate.prefix, suffix: config.lines.teammate.suffix },
+      player4: { id: 'player4', prefix: config.lines.teammate.prefix, suffix: config.lines.teammate.suffix },
+      battle: { id: 'battle', prefix: config.lines.battle.prefix, suffix: config.lines.battle.suffix },
+    },
+  };
+}
+
+export function moveTemplateLine(
+  order: NotificationTemplateConfig['order'],
+  lineId: NotificationTemplateLineId,
+  direction: -1 | 1,
+): NotificationTemplateConfig['order'] {
+  const currentIndex = order.indexOf(lineId);
+  const targetIndex = currentIndex + direction;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= order.length) {
+    return [...order];
+  }
+
+  const nextOrder = [...order];
+  const [item] = nextOrder.splice(currentIndex, 1);
+  nextOrder.splice(targetIndex, 0, item);
+  return nextOrder;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;')
+    .split("'").join('&#39;');
+}
+
 class NotificationsPageControllerImpl implements NotificationsPageController {
   private status: NotificationPageStatus | null = null;
   private manualSyncStatus: ManualSyncTaskStatus | null = null;
+  private templateConfig: NotificationTemplateConfig | null = null;
+  private editorTemplateConfig: EditorTemplateConfig | null = null;
   private failedTasks: Map<number, FailedTaskState> = new Map();
   private selectedTasks: Set<number> = new Set();
   private confirmDeleteTaskId: number | null = null;
@@ -43,14 +193,17 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     this.renderLoadingState();
 
     try {
-      const [status, manualSyncStatus, tasks] = await Promise.all([
+      const [status, manualSyncStatus, tasks, templateConfig] = await Promise.all([
         this.api.getStatus(),
         this.api.getManualSyncTaskStatus(),
         this.api.getFailedTasks(),
+        this.api.getTemplateConfig(),
       ]);
 
       this.status = status;
       this.manualSyncStatus = manualSyncStatus;
+      this.templateConfig = templateConfig;
+      this.editorTemplateConfig = collapseTemplateConfigForEditor(templateConfig);
       this.failedTasks.clear();
       for (const task of tasks) {
         this.failedTasks.set(task.id, {
@@ -76,7 +229,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
       ]);
       this.status = status;
       this.manualSyncStatus = manualSyncStatus;
-      this.renderStatusCard();
+      this.renderHeaderStatus();
       this.renderManualSyncCard();
     } catch (error) {
       console.error('Failed to refresh status:', error);
@@ -187,7 +340,7 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
   }
 
   private render(): void {
-    this.renderStatusCard();
+    this.renderHeaderStatus();
     this.renderManualSyncCard();
     this.renderRuntimeCard();
     this.renderLoginCard();
@@ -196,25 +349,37 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     this.renderTemplateEditor();
   }
 
-  private renderStatusCard(): void {
-    const card = document.getElementById('notifications-status-card');
-    if (!card || !this.status) return;
+  private renderHeaderStatus(): void {
+    const headerStatus = document.getElementById('notification-header-status');
+    const readyBadge = document.getElementById('notification-header-ready-badge');
+    const runtimeSpan = document.getElementById('notification-header-runtime');
 
-    const statusClass = this.getStatusClass(this.status.envStatus);
-    const statusText = this.getStatusText(this.status.envStatus);
+    if (!headerStatus || !this.status) return;
 
-    card.innerHTML = `
-      <div class="card-header">
-        <h3 data-i18n="notifications.statusTitle">Status</h3>
-        <span class="notification-status-pill ${statusClass}">${statusText}</span>
-      </div>
-      <div class="card-body">
-        <div class="notification-status-details">
-          ${this.status.runtimeVersion ? `<p>Runtime: ${this.status.runtimeVersion}</p>` : ''}
-          ${this.status.lastError ? `<p class="error-text">Error: ${this.status.lastError}</p>` : ''}
-        </div>
-      </div>
-    `;
+    const isReady = this.status.envStatus === 'ready';
+    const isError = this.status.envStatus === 'unsupported_os' || this.status.lastError;
+
+    // Update ready badge styling and text
+    if (readyBadge) {
+      readyBadge.className = 'notification-header-ready-badge';
+      if (isError) {
+        readyBadge.classList.add('error');
+      } else if (!isReady) {
+        readyBadge.classList.add('not-ready');
+      }
+
+      const readyText = readyBadge.querySelector('.ready-text');
+      if (readyText) {
+        readyText.textContent = this.getStatusText(this.status.envStatus);
+      }
+    }
+
+    // Update runtime version
+    if (runtimeSpan) {
+      runtimeSpan.textContent = this.status.runtimeVersion
+        ? `Runtime: ${this.status.runtimeVersion}`
+        : '';
+    }
   }
 
   private renderManualSyncCard(): void {
@@ -316,14 +481,20 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     const card = document.getElementById('notifications-login-card');
     if (!card || !this.status) return;
 
-    const showWebUi = this.status.webUiUrl && this.status.envStatus !== 'unsupported_os';
+    const showLoginCard = shouldShowNotificationLogin(this.status);
+    card.hidden = !showLoginCard;
+
+    if (!showLoginCard) {
+      card.innerHTML = '';
+      return;
+    }
 
     card.innerHTML = `
       <div class="card-header">
         <h3 data-i18n="notifications.loginTitle">QQ Login</h3>
       </div>
       <div class="card-body">
-        ${showWebUi ? `
+        ${this.status.webUiUrl ? `
           <div class="notification-webui-container">
             <iframe 
               src="${this.status.webUiUrl}" 
@@ -345,9 +516,11 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     const card = document.getElementById('notifications-config-card');
     if (!card) return;
 
+    card.hidden = false;
     const canConfigure = this.status?.envStatus === 'not_logged_in' ||
                         this.status?.envStatus === 'missing_group_id' ||
                         this.status?.envStatus === 'ready';
+    const currentGroupId = getCurrentNotificationGroupId(this.status);
 
     card.innerHTML = `
       <div class="card-header">
@@ -356,10 +529,15 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
       <div class="card-body">
         ${canConfigure ? `
           <div class="notification-config-form">
+            ${currentGroupId ? `
+              <p class="notification-current-group">
+                ${this.api.translate('notifications.currentGroup')}: <strong>${escapeHtml(currentGroupId)}</strong>
+              </p>
+            ` : ''}
             <div class="form-group">
               <label for="notification-group-id" data-i18n="notifications.groupId">Group ID</label>
               <input type="text" id="notification-group-id" class="form-input" 
-                value="${this.status?.groupId || ''}" 
+                value="${escapeHtml(this.status?.groupId || '')}" 
                 placeholder="Enter QQ group ID">
             </div>
             <div class="form-actions">
@@ -472,6 +650,22 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     const card = document.getElementById('notifications-template-card');
     if (!card) return;
 
+    if (!this.editorTemplateConfig) {
+      card.innerHTML = `
+        <div class="card-header">
+          <h3 data-i18n="notifications.templateTitle">Message Template</h3>
+        </div>
+        <div class="card-body">
+          <div class="template-line-placeholder">
+            <p>${this.api.translate('notifications.loading')}</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const preview = escapeHtml(buildTemplatePreviewLines(this.templateConfig ?? expandEditorTemplateConfig(this.editorTemplateConfig)).join('\n'));
+
     card.innerHTML = `
       <div class="card-header">
         <h3 data-i18n="notifications.templateTitle">Message Template</h3>
@@ -482,13 +676,109 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
             <p data-i18n="notifications.templateHint">Configure the order and prefix/suffix for each line of the notification message.</p>
           </div>
           <div class="template-lines" id="template-lines-container">
-            <div class="template-line-placeholder">
-              <p data-i18n="notifications.templateNotAvailable">Template editor will be available after the backend implementation.</p>
-            </div>
+            ${this.editorTemplateConfig.order.map((lineId, index) => {
+              const line = this.editorTemplateConfig?.lines[lineId];
+              if (!line) return '';
+              return `
+                <div class="template-line-card" data-line-id="${lineId}">
+                  <div class="template-line-header-row">
+                    <div>
+                      <strong>${this.api.translate(EDITOR_TEMPLATE_LINE_LABEL_KEYS[lineId])}</strong>
+                      <p class="template-line-example">${escapeHtml(lineId === 'teammate' ? TEMPLATE_PREVIEW_CONTENT.player1 : TEMPLATE_PREVIEW_CONTENT[lineId])}</p>
+                    </div>
+                    <div class="template-line-order-actions">
+                      <button type="button" class="btn btn-secondary btn-sm" data-action="move-line" data-line-id="${lineId}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button>
+                      <button type="button" class="btn btn-secondary btn-sm" data-action="move-line" data-line-id="${lineId}" data-direction="1" ${index === this.editorTemplateConfig!.order.length - 1 ? 'disabled' : ''}>↓</button>
+                    </div>
+                  </div>
+                  <div class="template-line-fields">
+                    <label>
+                      <span>${this.api.translate('notifications.templatePrefix')}</span>
+                      <input type="text" class="form-input" data-action="template-prefix" data-line-id="${lineId}" value="${escapeHtml(line.prefix)}">
+                    </label>
+                    <label>
+                      <span>${this.api.translate('notifications.templateSuffix')}</span>
+                      <input type="text" class="form-input" data-action="template-suffix" data-line-id="${lineId}" value="${escapeHtml(line.suffix)}">
+                    </label>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <div class="notification-template-preview">
+            <h4>${this.api.translate('notifications.templatePreview')}</h4>
+            <pre id="notification-template-preview" class="notification-template-preview-text">${preview}</pre>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" id="btn-save-template-config" data-i18n="common.save">Save</button>
           </div>
         </div>
       </div>
     `;
+
+    this.attachTemplateEditorListeners(card);
+  }
+
+  private attachTemplateEditorListeners(card: HTMLElement): void {
+    const moveButtons = card.querySelectorAll('[data-action="move-line"]');
+    moveButtons.forEach((button) => {
+      button.addEventListener('click', (event) => {
+        const target = event.currentTarget as HTMLButtonElement;
+        const lineId = target.dataset.lineId as EditorTemplateLineId;
+        const direction = Number(target.dataset.direction) as -1 | 1;
+        if (!this.editorTemplateConfig) return;
+        this.editorTemplateConfig = {
+          ...this.editorTemplateConfig,
+          order: moveTemplateLine(this.editorTemplateConfig.order as unknown as NotificationTemplateConfig['order'], lineId as NotificationTemplateLineId, direction) as unknown as EditorTemplateLineId[],
+        };
+        this.renderTemplateEditor();
+      });
+    });
+
+    const prefixInputs = card.querySelectorAll('[data-action="template-prefix"]');
+    prefixInputs.forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const target = event.currentTarget as HTMLInputElement;
+        this.updateTemplateLineAffix(target.dataset.lineId as EditorTemplateLineId, 'prefix', target.value);
+      });
+    });
+
+    const suffixInputs = card.querySelectorAll('[data-action="template-suffix"]');
+    suffixInputs.forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const target = event.currentTarget as HTMLInputElement;
+        this.updateTemplateLineAffix(target.dataset.lineId as EditorTemplateLineId, 'suffix', target.value);
+      });
+    });
+
+    const saveButton = card.querySelector('#btn-save-template-config');
+    if (saveButton) {
+      saveButton.addEventListener('click', () => this.handleSaveTemplateConfig());
+    }
+  }
+
+  private updateTemplateLineAffix(
+    lineId: EditorTemplateLineId,
+    field: 'prefix' | 'suffix',
+    value: string,
+  ): void {
+    if (!this.editorTemplateConfig) return;
+    this.editorTemplateConfig = {
+      ...this.editorTemplateConfig,
+      lines: {
+        ...this.editorTemplateConfig.lines,
+        [lineId]: {
+          ...this.editorTemplateConfig.lines[lineId],
+          [field]: value,
+        },
+      },
+    };
+    this.templateConfig = expandEditorTemplateConfig(this.editorTemplateConfig);
+
+    const preview = document.getElementById('notification-template-preview');
+    if (preview && this.templateConfig) {
+      preview.textContent = buildTemplatePreviewLines(this.templateConfig).join('\n');
+    }
   }
 
   private renderLoadingState(): void {
@@ -711,6 +1001,19 @@ class NotificationsPageControllerImpl implements NotificationsPageController {
     }
   }
 
+  private async handleSaveTemplateConfig(): Promise<void> {
+    if (!this.editorTemplateConfig) return;
+
+    try {
+      this.templateConfig = expandEditorTemplateConfig(this.editorTemplateConfig);
+      this.templateConfig = await this.api.saveTemplateConfig(this.templateConfig);
+      this.editorTemplateConfig = collapseTemplateConfigForEditor(this.templateConfig);
+      this.renderTemplateEditor();
+    } catch (error) {
+      console.error('Failed to save notification template config:', error);
+    }
+  }
+
   private async handleSendTest(): Promise<void> {
     try {
       await this.api.sendTest();
@@ -724,6 +1027,7 @@ interface NotificationAPI {
   getStatus(): Promise<NotificationPageStatus>;
   getManualSyncTaskStatus(): Promise<ManualSyncTaskStatus>;
   getFailedTasks(): Promise<NotificationFailedTask[]>;
+  getTemplateConfig(): Promise<NotificationTemplateConfig>;
   sendSelected(taskIds: number[]): Promise<{ sentIds: number[]; failedIds: number[] }>;
   deleteFailedTask(taskId: number): Promise<void>;
   installRuntime(): Promise<NotificationPageStatus>;
@@ -732,7 +1036,6 @@ interface NotificationAPI {
   restartRuntime(): Promise<NotificationPageStatus>;
   sendTest(): Promise<void>;
   saveGroupId(groupId: string): Promise<NotificationPageStatus>;
-  getTemplateConfig(): Promise<NotificationTemplateConfig>;
   saveTemplateConfig(config: NotificationTemplateConfig): Promise<NotificationTemplateConfig>;
   translate(key: string): string;
 }
