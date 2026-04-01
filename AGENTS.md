@@ -59,6 +59,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```bash
 ./node_modules/.bin/tauri icon "src-tauri/icons/icon.png" -o "src-tauri/icons"
 ./node_modules/.bin/tauri build --bundles app
+CI=true ./node_modules/.bin/tauri build --bundles dmg
 ```
 
 ### Lint reality
@@ -168,3 +169,4 @@ node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 - If you change a shared type, inspect `schemas.ts`, renderer hydration, and related Tauri command DTOs in one pass.
 - If you touch sync or telemetry parsing, review parsing tests and DB persistence together.
 - If macOS app icon work appears correct but the app still shows a generic icon, suspect local icon cache before changing code again; try refreshing Dock/Finder.
+- If `tauri build --bundles dmg` fails on macOS with `bundle_dmg.sh` / `hdiutil detach` / `Resource busy`, the likely cause is Finder DMG styling holding the mounted volume; retry with `CI=true` so Tauri adds `--skip-jenkins` and skips the cosmetic Finder step.
