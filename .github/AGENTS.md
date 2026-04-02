@@ -41,3 +41,4 @@ Guidance for agents editing GitHub Actions workflows and release automation in t
 - Do not upload plain binaries unless there is an explicit portable-build requirement.
 - Keep asset naming explicit and platform-aware.
 - For unsigned macOS DMG builds, set `CI=true` so Tauri passes `--skip-jenkins`; this avoids Finder/AppleScript DMG styling and prevents `hdiutil detach` failures like `Resource busy` during `bundle_dmg.sh`.
+- For macOS release builds that should still be manually openable without Apple Developer signing, set `bundle.macOS.signingIdentity` to `"-"` in `src-tauri/tauri.conf.json`. Without this ad-hoc signing, the generated `.app` can fail verification with `code has no resources but signature indicates they must be present` and show Finder's "app is damaged" message.

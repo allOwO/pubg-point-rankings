@@ -170,3 +170,4 @@ node --test --test-name-pattern "rounding" "packages/main/dist/**/*.test.js"
 - If you touch sync or telemetry parsing, review parsing tests and DB persistence together.
 - If macOS app icon work appears correct but the app still shows a generic icon, suspect local icon cache before changing code again; try refreshing Dock/Finder.
 - If `tauri build --bundles dmg` fails on macOS with `bundle_dmg.sh` / `hdiutil detach` / `Resource busy`, the likely cause is Finder DMG styling holding the mounted volume; retry with `CI=true` so Tauri adds `--skip-jenkins` and skips the cosmetic Finder step.
+- If a locally built macOS `.app` or DMG says the app is damaged, verify the bundle first with `codesign --verify --deep --strict --verbose=2 "<App>.app"`. In this repo, the fix was to set `src-tauri/tauri.conf.json > bundle.macOS.signingIdentity` to `"-"` so Tauri performs ad-hoc signing; after that, local DMGs verified and the app launched successfully.
