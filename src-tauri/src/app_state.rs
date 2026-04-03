@@ -84,3 +84,21 @@ pub fn ensure_account_point_history_repaired(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    #[test]
+    fn cargo_package_version_matches_tauri_config() {
+        let tauri_config: Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("parse tauri config");
+
+        let tauri_version = tauri_config
+            .get("version")
+            .and_then(Value::as_str)
+            .expect("tauri config version string");
+
+        assert_eq!(env!("CARGO_PKG_VERSION"), tauri_version);
+    }
+}

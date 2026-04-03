@@ -26,7 +26,10 @@ use crate::{
         settings::SettingsRepository,
         teammates::{TeammateDto, TeammatesRepository},
     },
-    services::notifications,
+    services::{
+        logs::{self, LogLevel},
+        notifications,
+    },
 };
 
 const REMOTE_FETCH_CONCURRENCY: usize = 4;
@@ -208,13 +211,78 @@ pub fn sync_recent_match_with_retry(
     retry_limit: u64,
     retry_delay: Duration,
 ) {
+    let _ = logs::write_log_record(
+        connection,
+        LogLevel::Info,
+        "sync",
+        "automatic recent-match sync started",
+    );
+
     let mut attempts = 0u64;
     loop {
         attempts += 1;
         match sync_recent_match(connection, sync_runtime) {
-            Ok(result) if result.success => break,
-            Ok(_) | Err(_) if attempts > retry_limit.saturating_add(1) => break,
-            Ok(_) | Err(_) => thread::sleep(retry_delay),
+            Ok(result) if result.success => {
+                let message = if attempts == 1 {
+                    "automatic recent-match sync completed".to_string()
+                } else {
+                    format!("automatic recent-match sync completed after {attempts} attempts")
+                };
+                let _ = logs::write_log_record(connection, LogLevel::Info, "sync", &message);
+                break;
+            }
+            Ok(result) => {
+                let error_message = result
+                    .error
+                    .unwrap_or_else(|| "automatic recent-match sync failed".to_string());
+
+                if attempts > retry_limit.saturating_add(1) {
+                    let _ = logs::write_log_record(
+                        connection,
+                        LogLevel::Error,
+                        "sync",
+                        &format!(
+                            "automatic recent-match sync failed after {attempts} attempts: {error_message}"
+                        ),
+                    );
+                    break;
+                }
+
+                let _ = logs::write_log_record(
+                    connection,
+                    LogLevel::Warn,
+                    "sync",
+                    &format!(
+                        "automatic recent-match sync attempt {attempts} failed: {error_message}; retrying in {} seconds",
+                        retry_delay.as_secs()
+                    ),
+                );
+                thread::sleep(retry_delay);
+            }
+            Err(error) => {
+                if attempts > retry_limit.saturating_add(1) {
+                    let _ = logs::write_log_record(
+                        connection,
+                        LogLevel::Error,
+                        "sync",
+                        &format!(
+                            "automatic recent-match sync failed after {attempts} attempts: {error}"
+                        ),
+                    );
+                    break;
+                }
+
+                let _ = logs::write_log_record(
+                    connection,
+                    LogLevel::Warn,
+                    "sync",
+                    &format!(
+                        "automatic recent-match sync attempt {attempts} failed: {error}; retrying in {} seconds",
+                        retry_delay.as_secs()
+                    ),
+                );
+                thread::sleep(retry_delay);
+            }
         }
     }
 }
@@ -981,6 +1049,41 @@ fn chrono_like_iso_utc() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    use crate::{
+        db::migrations::bootstrap_database, repository::settings::SettingsRepository,
+        services::logs::read_recent_log_entries,
+    };
+
+    fn make_temp_dir(prefix: &str) -> PathBuf {
+        let unique = format!(
+            "{}-{}",
+            prefix,
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system time")
+                .as_nanos()
+        );
+        let path = std::env::temp_dir().join(unique);
+        fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    fn seed_logging_settings(connection: &Connection, directory: &Path) {
+        bootstrap_database(connection).expect("bootstrap db");
+        let settings = SettingsRepository::new(connection);
+        settings
+            .set("logging_enabled", "1")
+            .expect("enable logging");
+        settings
+            .set("logging_directory", directory.to_string_lossy().as_ref())
+            .expect("set logging directory");
+    }
 
     #[test]
     fn run_manual_sync_job_marks_success_state() {
@@ -1014,6 +1117,26 @@ mod tests {
         let latest = read_manual_task_status(&manual_status).expect("read manual status");
         assert_eq!(latest.state, ManualSyncTaskState::Failed);
         assert_eq!(latest.error_message.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn auto_recent_match_sync_writes_failure_logs() {
+        let connection = Connection::open_in_memory().expect("open in-memory db");
+        let log_dir = make_temp_dir("sync-auto-logs");
+        let sync_runtime = Arc::new(Mutex::new(SyncRuntimeStatus::default()));
+        seed_logging_settings(&connection, &log_dir);
+
+        sync_recent_match_with_retry(&connection, &sync_runtime, 0, Duration::from_secs(0));
+
+        let entries = read_recent_log_entries(&connection, 20).expect("read log entries");
+        assert!(
+            entries.iter().any(|entry| {
+                entry.source == "sync" && entry.message.contains("automatic recent-match sync")
+            }),
+            "expected automatic sync log entry, got {entries:?}"
+        );
+
+        let _ = fs::remove_dir_all(log_dir);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "pubg-point-rankings-tauri"
-version = "0.1.0"
+version = "0.1.1"
 description = "PUBG Point Rankings Tauri host"
 authors = ["lzx"]
 edition = "2021"

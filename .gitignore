@@ -25,4 +25,5 @@ src-tauri/gen/
 *.dmg
 *.exe
 /.superpowers/
+.sisyphus/
 .worktrees/
